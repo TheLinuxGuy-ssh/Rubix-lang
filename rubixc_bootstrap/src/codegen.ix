@@ -1,0 +1,95 @@
+# ==============================================================================
+# Rubix Bootstrap Compiler: Code Generator & Assembly Emitter
+# Written in 100% Pure Rubix (.ix)
+# ==============================================================================
+
+struct CodeEmitter {
+    out_buf: int,
+    out_len: int,
+    out_cap: int,
+    out_label_counter: int
+}
+
+fn emitter_create(capacity: int): CodeEmitter {
+    let b = alloc(capacity);
+    let em = CodeEmitter {
+        out_buf: b,
+        out_len: 0,
+        out_cap: capacity,
+        out_label_counter: 1
+    };
+    return em;
+}
+
+# Append raw bytes to emitter buffer
+fn emit_bytes(em: CodeEmitter, src: int, src_len: int) {
+    let b = em.out_buf;
+    let l = em.out_len;
+    let i = 0;
+    while (i < src_len) {
+        mem_set_u8(b, l + i, mem_get_u8(src, i));
+        i = i + 1;
+    }
+    em.out_len = l + src_len;
+}
+
+# Append null-terminated C-string to emitter buffer
+fn emit_str(em: CodeEmitter, s: int) {
+    let length = str_len(s);
+    emit_bytes(em, s, length);
+}
+
+fn emit_newline(em: CodeEmitter) {
+    let b = em.out_buf;
+    let l = em.out_len;
+    mem_set_u8(b, l, 10); # '\n'
+    em.out_len = l + 1;
+}
+
+# Convert integer to string and emit
+fn emit_int(em: CodeEmitter, val: int) {
+    if (val == 0) {
+        let b = em.out_buf;
+        let l = em.out_len;
+        mem_set_u8(b, l, 48); # '0'
+        em.out_len = l + 1;
+        return;
+    }
+
+    let is_neg = false;
+    let n = val;
+    if (n < 0) {
+        is_neg = true;
+        n = 0 - n;
+    }
+
+    let temp = alloc(32);
+    let count = 0;
+    while (n > 0) {
+        let rem = n % 10;
+        temp[count] = 48 + rem;
+        count = count + 1;
+        n = n / 10;
+    }
+
+    let b = em.out_buf;
+    let l = em.out_len;
+    if (is_neg) {
+        mem_set_u8(b, l, 45); # '-'
+        l = l + 1;
+    }
+
+    let i = 0;
+    while (i < count) {
+        mem_set_u8(b, l + i, temp[count - 1 - i]);
+        i = i + 1;
+    }
+    em.out_len = l + count;
+    free(temp, 32);
+}
+
+fn emit_label(em: CodeEmitter, prefix: int, id: int) {
+    emit_str(em, prefix);
+    emit_int(em, id);
+    emit_str(em, ":\n");
+}

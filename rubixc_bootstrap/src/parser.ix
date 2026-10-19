@@ -1,0 +1,338 @@
+# ==============================================================================
+# Rubix Bootstrap Compiler: Parser & Code Generator
+# Written in 100% Pure Rubix (.ix)
+# ==============================================================================
+
+import "rubixc_bootstrap/src/tokens.ix";
+import "rubixc_bootstrap/src/symtab.ix";
+import "rubixc_bootstrap/src/codegen.ix";
+
+struct ParserState {
+    p_src: int,
+    p_src_len: int,
+    p_tokens_kind: int,
+    p_tokens_pos: int,
+    p_tokens_len: int,
+    p_tokens_line: int,
+    p_tok_count: int,
+    p_cur_tok: int,
+    p_symtab: SymbolTable,
+    p_em: CodeEmitter,
+    p_label_ctr: int
+}
+
+fn parser_create(src: int, src_len: int, res: LexerResult, em: CodeEmitter): ParserState {
+    let tab = symtab_create(256);
+    let p = ParserState {
+        p_src: src,
+        p_src_len: src_len,
+        p_tokens_kind: res.tokens_kind,
+        p_tokens_pos: res.tokens_pos,
+        p_tokens_len: res.tokens_len,
+        p_tokens_line: res.tokens_line,
+        p_tok_count: res.count,
+        p_cur_tok: 0,
+        p_symtab: tab,
+        p_em: em,
+        p_label_ctr: 1
+    };
+    return p;
+}
+
+fn cur_kind(p: ParserState): int {
+    if (p.p_cur_tok >= p.p_tok_count) {
+        return TOK_EOF();
+    }
+    let k = p.p_tokens_kind;
+    return k[p.p_cur_tok];
+}
+
+fn cur_pos(p: ParserState): int {
+    let ps = p.p_tokens_pos;
+    return ps[p.p_cur_tok];
+}
+
+fn cur_len(p: ParserState): int {
+    let ls = p.p_tokens_len;
+    return ls[p.p_cur_tok];
+}
+
+fn advance(p: ParserState) {
+    p.p_cur_tok = p.p_cur_tok + 1;
+}
+
+# Forward parse integer literal from source bytes
+fn parse_int_val(src: int, pos: int, len: int): int {
+    let val = 0;
+    let i = 0;
+    while (i < len) {
+        let digit = mem_get_u8(src, pos + i) - 48;
+        val = (val * 10) + digit;
+        i = i + 1;
+    }
+    return val;
+}
+
+# --- Expression Parsing (Precedence Climbing) ---
+
+fn parse_primary(p: ParserState) {
+    let kind = cur_kind(p);
+
+    # Number literal
+    if (kind == TOK_INT()) {
+        let val = parse_int_val(p.p_src, cur_pos(p), cur_len(p));
+        emit_str(p.p_em, "    mov rax, ");
+        emit_int(p.p_em, val);
+        emit_newline(p.p_em);
+        advance(p);
+        return;
+    }
+
+    # Boolean literals
+    if (kind == TOK_TRUE()) {
+        emit_str(p.p_em, "    mov rax, 1\n");
+        advance(p);
+        return;
+    }
+    if (kind == TOK_FALSE()) {
+        emit_str(p.p_em, "    mov rax, 0\n");
+        advance(p);
+        return;
+    }
+
+    # Parenthesized expression: '(' expr ')'
+    if (kind == TOK_LPAREN()) {
+        advance(p);
+        parse_expr(p);
+        if (cur_kind(p) == TOK_RPAREN()) {
+            advance(p);
+        }
+        return;
+    }
+
+    # Identifier: function call or variable lookup
+    if (kind == TOK_IDENT()) {
+        let id_pos = cur_pos(p);
+        let id_len = cur_len(p);
+        advance(p);
+
+        # Check if function call: ident '(' ... ')'
+        if (cur_kind(p) == TOK_LPAREN()) {
+            advance(p); # skip '('
+            # Skip arguments for now until closing ')'
+            while (cur_kind(p) != TOK_RPAREN() && cur_kind(p) != TOK_EOF()) {
+                advance(p);
+            }
+            if (cur_kind(p) == TOK_RPAREN()) {
+                advance(p);
+            }
+            emit_str(p.p_em, "    call ");
+            emit_bytes(p.p_em, p.p_src + id_pos, id_len);
+            emit_newline(p.p_em);
+            return;
+        }
+
+        # Otherwise variable lookup
+        let offset = symtab_find(p.p_symtab, p.p_src, id_pos, id_len);
+        if (offset != -1) {
+            emit_str(p.p_em, "    mov rax, QWORD PTR [rbp - ");
+            emit_int(p.p_em, offset);
+            emit_str(p.p_em, "]\n");
+        }
+        return;
+    }
+
+    advance(p);
+}
+
+# Multiplication, Division, Modulo (*, /, %)
+fn parse_multiplicative(p: ParserState) {
+    parse_primary(p);
+
+    while (cur_kind(p) == TOK_STAR() || cur_kind(p) == TOK_SLASH() || cur_kind(p) == TOK_PERCENT()) {
+        let op = cur_kind(p);
+        advance(p);
+
+        emit_str(p.p_em, "    push rax\n");
+        parse_primary(p);
+
+        if (op == TOK_STAR()) {
+            emit_str(p.p_em, "    pop rbx\n    imul rax, rbx\n");
+        } else if (op == TOK_SLASH()) {
+            emit_str(p.p_em, "    mov rbx, rax\n    pop rax\n    cqo\n    idiv rbx\n");
+        } else if (op == TOK_PERCENT()) {
+            emit_str(p.p_em, "    mov rbx, rax\n    pop rax\n    cqo\n    idiv rbx\n    mov rax, rdx\n");
+        }
+    }
+}
+
+# Addition and Subtraction (+, -)
+fn parse_additive(p: ParserState) {
+    parse_multiplicative(p);
+
+    while (cur_kind(p) == TOK_PLUS() || cur_kind(p) == TOK_MINUS()) {
+        let op = cur_kind(p);
+        advance(p);
+
+        emit_str(p.p_em, "    push rax\n");
+        parse_multiplicative(p);
+
+        if (op == TOK_PLUS()) {
+            emit_str(p.p_em, "    pop rbx\n    add rax, rbx\n");
+        } else {
+            emit_str(p.p_em, "    mov rbx, rax\n    pop rax\n    sub rax, rbx\n");
+        }
+    }
+}
+
+# Comparisons (==, !=, <, <=, >, >=)
+fn parse_comparison(p: ParserState) {
+    parse_additive(p);
+
+    if (cur_kind(p) == TOK_EQ() || cur_kind(p) == TOK_NEQ() || cur_kind(p) == TOK_LT() || cur_kind(p) == TOK_LTE() || cur_kind(p) == TOK_GT() || cur_kind(p) == TOK_GTE()) {
+        let op = cur_kind(p);
+        advance(p);
+
+        emit_str(p.p_em, "    push rax\n");
+        parse_additive(p);
+
+        emit_str(p.p_em, "    mov rbx, rax\n    pop rax\n    cmp rax, rbx\n");
+        if (op == TOK_EQ()) {
+            emit_str(p.p_em, "    sete al\n");
+        } else if (op == TOK_NEQ()) {
+            emit_str(p.p_em, "    setne al\n");
+        } else if (op == TOK_LT()) {
+            emit_str(p.p_em, "    setl al\n");
+        } else if (op == TOK_LTE()) {
+            emit_str(p.p_em, "    setle al\n");
+        } else if (op == TOK_GT()) {
+            emit_str(p.p_em, "    setg al\n");
+        } else if (op == TOK_GTE()) {
+            emit_str(p.p_em, "    setge al\n");
+        }
+        emit_str(p.p_em, "    movzx rax, al\n");
+    }
+}
+
+fn parse_expr(p: ParserState) {
+    parse_comparison(p);
+}
+
+# --- Statement Parsing ---
+
+fn parse_let_stmt(p: ParserState) {
+    advance(p); # skip 'let'
+    let v_pos = cur_pos(p);
+    let v_len = cur_len(p);
+    advance(p); # skip ident
+
+    # Optional type annotation
+    if (cur_kind(p) == TOK_COLON()) {
+        advance(p); # skip ':'
+        advance(p); # skip type
+    }
+
+    # Expect '='
+    if (cur_kind(p) == TOK_ASSIGN()) {
+        advance(p);
+    }
+
+    parse_expr(p);
+
+    # Add variable to symbol table and emit stack store
+    let offset = symtab_add(p.p_symtab, p.p_src, v_pos, v_len);
+    emit_str(p.p_em, "    mov QWORD PTR [rbp - ");
+    emit_int(p.p_em, offset);
+    emit_str(p.p_em, "], rax\n");
+
+    if (cur_kind(p) == TOK_SEMICOLON()) {
+        advance(p);
+    }
+}
+
+fn parse_return_stmt(p: ParserState) {
+    advance(p); # skip 'return'
+    parse_expr(p);
+    emit_str(p.p_em, "    mov rsp, rbp\n    pop rbp\n    ret\n");
+    if (cur_kind(p) == TOK_SEMICOLON()) {
+        advance(p);
+    }
+}
+
+fn parse_statement(p: ParserState) {
+    let k = cur_kind(p);
+    if (k == TOK_LET()) {
+        parse_let_stmt(p);
+    } else if (k == TOK_RETURN()) {
+        parse_return_stmt(p);
+    } else {
+        parse_expr(p);
+        if (cur_kind(p) == TOK_SEMICOLON()) {
+            advance(p);
+        }
+    }
+}
+
+# Parse top-level function
+fn parse_fn_decl(p: ParserState) {
+    advance(p); # skip 'fn'
+
+    let fn_pos = cur_pos(p);
+    let fn_len = cur_len(p);
+    advance(p); # skip name
+
+    # Emit function label and prologue
+    emit_str(p.p_em, ".globl ");
+    emit_bytes(p.p_em, p.p_src + fn_pos, fn_len);
+    emit_newline(p.p_em);
+
+    emit_bytes(p.p_em, p.p_src + fn_pos, fn_len);
+    emit_str(p.p_em, ":\n    push rbp\n    mov rbp, rsp\n    sub rsp, 128\n");
+
+    symtab_clear(p.p_symtab);
+
+    # Skip params '(...)' for now
+    if (cur_kind(p) == TOK_LPAREN()) {
+        while (cur_kind(p) != TOK_RPAREN() && cur_kind(p) != TOK_EOF()) {
+            advance(p);
+        }
+        if (cur_kind(p) == TOK_RPAREN()) {
+            advance(p);
+        }
+    }
+
+    # Optional return type
+    if (cur_kind(p) == TOK_COLON()) {
+        advance(p); # skip ':'
+        advance(p); # skip type
+    }
+
+    # Expect '{'
+    if (cur_kind(p) == TOK_LBRACE()) {
+        advance(p);
+    }
+
+    # Parse function body statements
+    while (cur_kind(p) != TOK_RBRACE() && cur_kind(p) != TOK_EOF()) {
+        parse_statement(p);
+    }
+
+    if (cur_kind(p) == TOK_RBRACE()) {
+        advance(p);
+    }
+
+    # Default epilogue if no return
+    emit_str(p.p_em, "    xor rax, rax\n    mov rsp, rbp\n    pop rbp\n    ret\n");
+}
+
+fn parse_full_program(p: ParserState) {
+    emit_str(p.p_em, ".intel_syntax noprefix\n.text\n.globl _start\n_start:\n    call main\n    mov rdi, rax\n    mov rax, 60\n    syscall\n\n");
+
+    while (cur_kind(p) != TOK_EOF()) {
+        if (cur_kind(p) == TOK_FN()) {
+            parse_fn_decl(p);
+        } else {
+            advance(p);
+        }
+    }
+}

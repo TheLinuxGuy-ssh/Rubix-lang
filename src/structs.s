@@ -180,6 +180,42 @@ parse_struct_decl:
     lea rsi, [msg_err_expected_struct_name]
     call expect_tok         # verifies ident and advances past it
 
+    # Check if struct is already declared (e.g. from prepass)
+    mov rdi, r12
+    mov rsi, r13
+    call struct_find
+    test rax, rax
+    jz .L_psd_do_register
+
+    # Already declared: just skip to closing '}'
+    xor rcx, rcx
+.L_psd_skip_loop:
+    call get_cur_tok_ptr
+    mov rax, [rax + 0]
+    cmp rax, TOK_RBRACE
+    je .L_psd_skip_done
+    cmp rax, TOK_EOF
+    je .L_psd_err_eof
+    call advance_token
+    jmp .L_psd_skip_loop
+.L_psd_skip_done:
+    call advance_token      # skip '}'
+    call get_cur_tok_ptr
+    mov rax, [rax + 0]
+    cmp rax, TOK_SEMICOLON
+    jne .L_psd_skip_ret
+    call advance_token
+.L_psd_skip_ret:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    mov rsp, rbp
+    pop rbp
+    ret
+
+.L_psd_do_register:
     # Check capacity
     mov rax, [structs_count]
     cmp rax, MAX_STRUCTS
@@ -295,6 +331,42 @@ parse_struct_decl:
     pop r15
     pop r14
     pop r13
+    pop r12
+    pop rbx
+    mov rsp, rbp
+    pop rbp
+    ret
+
+# collect_structs()
+# Scans all tokens and parses all top-level struct declarations ahead of function body parsing
+collect_structs:
+    push rbp
+    mov rbp, rsp
+    push rbx
+    push r12
+
+    mov r12, [cur_tok_idx]  # save cur_tok_idx
+    mov QWORD PTR [cur_tok_idx], 0
+    mov QWORD PTR [structs_count], 0
+
+.L_cs_loop:
+    call get_cur_tok_ptr
+    mov rax, [rax + 0]
+    cmp rax, TOK_EOF
+    je .L_cs_done
+
+    cmp rax, TOK_STRUCT
+    jne .L_cs_next
+
+    call parse_struct_decl
+    jmp .L_cs_loop
+
+.L_cs_next:
+    call advance_token
+    jmp .L_cs_loop
+
+.L_cs_done:
+    mov [cur_tok_idx], r12  # restore cur_tok_idx
     pop r12
     pop rbx
     mov rsp, rbp

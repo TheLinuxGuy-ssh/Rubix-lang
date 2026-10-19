@@ -1,0 +1,100 @@
+# ==============================================================================
+# Rubix Bootstrap Compiler: Main Driver & CLI
+# Written in 100% Pure Rubix (.ix)
+# ==============================================================================
+
+import "rubixc_bootstrap/src/tokens.ix";
+import "rubixc_bootstrap/src/symtab.ix";
+import "rubixc_bootstrap/src/codegen.ix";
+import "rubixc_bootstrap/src/lexer.ix";
+import "rubixc_bootstrap/src/parser.ix";
+
+fn compile_source_to_asm(input_path: int, output_path: int): bool {
+    # 1. Open input file: O_RDONLY = 0
+    let in_fd = file_open(input_path, 0, 0);
+    if (in_fd < 0) {
+        print_str("Error: Failed to open input file: ");
+        print_str(input_path);
+        print_str("\n");
+        return false;
+    }
+
+    # Allocate 1MB source buffer
+    let max_src = 1048576;
+    let src_buf = alloc(max_src);
+    let bytes_read = file_read(in_fd, src_buf, max_src - 1);
+    file_close(in_fd);
+
+    if (bytes_read <= 0) {
+        print_str("Error: Source file is empty or could not be read\n");
+        free(src_buf, max_src);
+        return false;
+    }
+
+    # Null terminate source buffer
+    mem_set_u8(src_buf, bytes_read, 0);
+
+    print_str("[Rubix-in-Rubix] Lexing source file (");
+    print(bytes_read);
+    print_str(" bytes)...\n");
+
+    # 2. Run Lexer
+    let lex_res = lex_source(src_buf, bytes_read, 65536);
+    print_str("[Rubix-in-Rubix] Emitted ");
+    print(lex_res.count);
+    print_str(" tokens\n");
+
+    # 3. Run Parser & Assembly Generator
+    print_str("[Rubix-in-Rubix] Parsing & Emitting x86-64 assembly...\n");
+    let em = emitter_create(2097152); # 2MB assembly buffer
+    let p = parser_create(src_buf, bytes_read, lex_res, em);
+    parse_full_program(p);
+
+    # 4. Write output assembly file
+    # O_WRONLY | O_CREAT | O_TRUNC = 577, Mode 0644 = 420
+    let out_fd = file_open(output_path, 577, 420);
+    if (out_fd < 0) {
+        print_str("Error: Failed to open output file for writing: ");
+        print_str(output_path);
+        print_str("\n");
+        free(src_buf, max_src);
+        return false;
+    }
+
+    file_write(out_fd, em.out_buf, em.out_len);
+    file_close(out_fd);
+
+    print_str("[Rubix-in-Rubix] Successfully compiled -> ");
+    print_str(output_path);
+    print_str(" (");
+    print(em.out_len);
+    print_str(" bytes emitted)\n");
+
+    free(src_buf, max_src);
+    return true;
+}
+
+fn main() {
+    print_str("================================================================\n");
+    print_str("     Rubix Self-Hosted Compiler v1.0 (Written in Pure Rubix)   \n");
+    print_str("================================================================\n");
+
+    let demo_input = "demo_prog.ix";
+    let demo_output = "demo_prog.s";
+
+    # Create a test input program to compile
+    let test_fd = file_open(demo_input, 577, 420);
+    let code = "fn test_math(): int {\n    let a = 100;\n    let b = 50;\n    let c = a * 2 + b / 5;\n    return c;\n}\nfn main(): int {\n    let ans = test_math();\n    return ans;\n}\n";
+    file_write(test_fd, code, str_len(code));
+    file_close(test_fd);
+
+    let success: bool = compile_source_to_asm(demo_input, demo_output);
+
+    if (success) {
+        print_str("================================================================\n");
+        print_str(" >>> SELF-HOSTING MILESTONE ACHIEVED: COMPILER RUNS IN RUBIX! <<<\n");
+        print_str("================================================================\n");
+        return 0;
+    }
+    return 1;
+}

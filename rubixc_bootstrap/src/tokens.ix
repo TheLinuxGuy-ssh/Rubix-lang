@@ -1,0 +1,64 @@
+# ==============================================================================
+# Rubix Bootstrap Compiler: Token Constants
+# ==============================================================================
+
+# Special / Literals
+fn TOK_EOF(): int { return 0; }
+fn TOK_INT(): int { return 1; }
+fn TOK_IDENT(): int { return 2; }
+fn TOK_STR(): int { return 3; }
+fn TOK_FLOAT(): int { return 4; }
+fn TOK_CHAR_LIT(): int { return 19; }
+
+# Keywords
+fn TOK_FN(): int { return 10; }
+fn TOK_LET(): int { return 11; }
+fn TOK_IF(): int { return 12; }
+fn TOK_ELSE(): int { return 13; }
+fn TOK_WHILE(): int { return 14; }
+fn TOK_RETURN(): int { return 15; }
+fn TOK_IMPORT(): int { return 16; }
+fn TOK_TRUE(): int { return 17; }
+fn TOK_FALSE(): int { return 18; }
+fn TOK_CHAR_KW(): int { return 20; }
+fn TOK_BOOL_KW(): int { return 21; }
+fn TOK_FLOAT_KW(): int { return 22; }
+fn TOK_BREAK(): int { return 54; }
+fn TOK_CONTINUE(): int { return 55; }
+fn TOK_FOR(): int { return 56; }
+fn TOK_STRUCT(): int { return 58; }
+
+# Operators & Punctuation
+fn TOK_PLUS(): int { return 30; }
+fn TOK_MINUS(): int { return 31; }
+fn TOK_STAR(): int { return 32; }
+fn TOK_SLASH(): int { return 33; }
+fn TOK_PERCENT(): int { return 34; }
+fn TOK_ASSIGN(): int { return 35; }
+fn TOK_EQ(): int { return 36; }
+fn TOK_NEQ(): int { return 37; }
+fn TOK_LT(): int { return 38; }
+fn TOK_LTE(): int { return 39; }
+fn TOK_GT(): int { return 40; }
+fn TOK_GTE(): int { return 41; }
+fn TOK_LPAREN(): int { return 42; }
+fn TOK_RPAREN(): int { return 43; }
+fn TOK_LBRACE(): int { return 44; }
+fn TOK_RBRACE(): int { return 45; }
+fn TOK_COMMA(): int { return 46; }
+fn TOK_SEMICOLON(): int { return 47; }
+fn TOK_LBRACKET(): int { return 48; }
+fn TOK_RBRACKET(): int { return 49; }
+fn TOK_AND(): int { return 50; }
+fn TOK_OR(): int { return 51; }
+fn TOK_NOT(): int { return 52; }
+fn TOK_COLON(): int { return 53; }
+fn TOK_DOT(): int { return 57; }
+
+# Token representation structure
+struct Token {
+    kind: int,
+    pos: int,
+    len: int,
+    line: int
+}

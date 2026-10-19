@@ -1,0 +1,120 @@
+# ==============================================================================
+# Rubix Bootstrap Compiler: Symbol Table & Scoping
+# Written in 100% Pure Rubix (.ix)
+# ==============================================================================
+
+# Substring comparison for symbol names
+fn sym_name_match(src1: int, pos1: int, len1: int, src2: int, pos2: int, len2: int): bool {
+    if (len1 != len2) {
+        return false;
+    }
+    let i = 0;
+    while (i < len1) {
+        let b1 = mem_get_u8(src1, pos1 + i);
+        let b2 = mem_get_u8(src2, pos2 + i);
+        if (b1 != b2) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+struct SymbolTable {
+    name_pos: int,
+    name_len: int,
+    offsets: int,
+    count: int,
+    cur_stack_offset: int,
+    max_stack_offset: int,
+    scope_starts: int,
+    scope_offsets: int,
+    scope_depth: int
+}
+
+fn symtab_create(capacity: int): SymbolTable {
+    let np = alloc(capacity * 8);
+    let nl = alloc(capacity * 8);
+    let off = alloc(capacity * 8);
+    let ss = alloc(64 * 8);
+    let so = alloc(64 * 8);
+
+    let tab = SymbolTable {
+        name_pos: np,
+        name_len: nl,
+        offsets: off,
+        count: 0,
+        cur_stack_offset: 0,
+        max_stack_offset: 0,
+        scope_starts: ss,
+        scope_offsets: so,
+        scope_depth: 0
+    };
+    return tab;
+}
+
+fn symtab_clear(tab: SymbolTable) {
+    tab.count = 0;
+    tab.cur_stack_offset = 0;
+    tab.max_stack_offset = 0;
+    tab.scope_depth = 0;
+}
+
+fn symtab_enter_scope(tab: SymbolTable) {
+    let depth = tab.scope_depth;
+    let ss = tab.scope_starts;
+    let so = tab.scope_offsets;
+    ss[depth] = tab.count;
+    so[depth] = tab.cur_stack_offset;
+    tab.scope_depth = depth + 1;
+}
+
+fn symtab_exit_scope(tab: SymbolTable) {
+    if (tab.scope_depth > 0) {
+        let depth = tab.scope_depth - 1;
+        let ss = tab.scope_starts;
+        let so = tab.scope_offsets;
+        tab.count = ss[depth];
+        tab.cur_stack_offset = so[depth];
+        tab.scope_depth = depth;
+    }
+}
+
+# Add a symbol to the symbol table
+fn symtab_add(tab: SymbolTable, src: int, pos: int, len: int): int {
+    let new_offset = tab.cur_stack_offset + 8;
+    tab.cur_stack_offset = new_offset;
+    if (new_offset > tab.max_stack_offset) {
+        tab.max_stack_offset = new_offset;
+    }
+
+    let idx = tab.count;
+    let np = tab.name_pos;
+    let nl = tab.name_len;
+    let off = tab.offsets;
+
+    np[idx] = pos;
+    nl[idx] = len;
+    off[idx] = new_offset;
+    tab.count = idx + 1;
+
+    return new_offset;
+}
+
+# Lookup symbol in reverse scope order
+fn symtab_find(tab: SymbolTable, src: int, pos: int, len: int): int {
+    let i = tab.count;
+    let np = tab.name_pos;
+    let nl = tab.name_len;
+    let off = tab.offsets;
+
+    while (i > 0) {
+        i = i - 1;
+        let p = np[i];
+        let l = nl[i];
+        if (sym_name_match(src, pos, len, src, p, l)) {
+            return off[i];
+        }
+    }
+    return 0 - 1; # not found (-1)
+}

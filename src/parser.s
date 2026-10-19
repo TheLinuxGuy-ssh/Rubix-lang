@@ -183,6 +183,9 @@ parse_program:
     # Pre-collect user-defined function names so they can override built-in print
     call collect_user_functions
 
+    # Pre-collect all struct declarations across all files and imports
+    call collect_structs
+
     # Emit assembly header
     lea rdi, [str_header]
     call emit_cstr

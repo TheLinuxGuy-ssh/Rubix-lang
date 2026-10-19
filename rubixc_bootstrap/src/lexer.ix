@@ -1,0 +1,282 @@
+# ==============================================================================
+# Rubix Bootstrap Compiler: Lexer (Lexical Analysis)
+# Written in 100% Pure Rubix (.ix)
+# ==============================================================================
+
+import "rubixc_bootstrap/src/tokens.ix";
+
+fn is_whitespace(c: int): bool {
+    if (c == 32 || c == 9 || c == 10 || c == 13) {
+        return true;
+    }
+    return false;
+}
+
+fn is_digit(c: int): bool {
+    if (c >= 48 && c <= 57) {
+        return true;
+    }
+    return false;
+}
+
+fn is_alpha(c: int): bool {
+    if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95) {
+        return true;
+    }
+    return false;
+}
+
+fn is_alnum(c: int): bool {
+    if (is_alpha(c) || is_digit(c)) {
+        return true;
+    }
+    return false;
+}
+
+# Substring comparison for keywords
+fn match_keyword(src: int, pos: int, len: int, kw: int, kw_len: int): bool {
+    if (len != kw_len) {
+        return false;
+    }
+    let i = 0;
+    while (i < len) {
+        let c1 = mem_get_u8(src, pos + i);
+        let c2 = mem_get_u8(kw, i);
+        if (c1 != c2) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+# Determine identifier vs keyword
+fn classify_ident(src: int, pos: int, len: int): int {
+    if (match_keyword(src, pos, len, "fn", 2)) { return TOK_FN(); }
+    if (match_keyword(src, pos, len, "let", 3)) { return TOK_LET(); }
+    if (match_keyword(src, pos, len, "if", 2)) { return TOK_IF(); }
+    if (match_keyword(src, pos, len, "else", 4)) { return TOK_ELSE(); }
+    if (match_keyword(src, pos, len, "while", 5)) { return TOK_WHILE(); }
+    if (match_keyword(src, pos, len, "for", 3)) { return TOK_FOR(); }
+    if (match_keyword(src, pos, len, "return", 6)) { return TOK_RETURN(); }
+    if (match_keyword(src, pos, len, "import", 6)) { return TOK_IMPORT(); }
+    if (match_keyword(src, pos, len, "true", 4)) { return TOK_TRUE(); }
+    if (match_keyword(src, pos, len, "false", 4)) { return TOK_FALSE(); }
+    if (match_keyword(src, pos, len, "break", 5)) { return TOK_BREAK(); }
+    if (match_keyword(src, pos, len, "continue", 8)) { return TOK_CONTINUE(); }
+    if (match_keyword(src, pos, len, "struct", 6)) { return TOK_STRUCT(); }
+    if (match_keyword(src, pos, len, "int", 3)) { return TOK_IDENT(); }
+    if (match_keyword(src, pos, len, "char", 4)) { return TOK_CHAR_KW(); }
+    if (match_keyword(src, pos, len, "bool", 4)) { return TOK_BOOL_KW(); }
+    if (match_keyword(src, pos, len, "float", 5)) { return TOK_FLOAT_KW(); }
+    return TOK_IDENT();
+}
+
+# Token list struct to hold dynamic stream of tokens
+struct LexerResult {
+    tokens_kind: int,
+    tokens_pos: int,
+    tokens_len: int,
+    tokens_line: int,
+    count: int
+}
+
+fn lex_source(src: int, src_len: int, max_tokens: int): LexerResult {
+    let kinds = alloc(max_tokens * 8);
+    let poss = alloc(max_tokens * 8);
+    let lens = alloc(max_tokens * 8);
+    let lines = alloc(max_tokens * 8);
+
+    let count = 0;
+    let pos = 0;
+    let line = 1;
+
+    while (pos < src_len) {
+        let c = mem_get_u8(src, pos);
+
+        # Skip whitespace
+        if (c == 32 || c == 9 || c == 13) {
+            pos = pos + 1;
+            continue;
+        }
+        if (c == 10) { # newline
+            line = line + 1;
+            pos = pos + 1;
+            continue;
+        }
+
+        # Skip comment (# ...)
+        if (c == 35) {
+            while (pos < src_len && mem_get_u8(src, pos) != 10) {
+                pos = pos + 1;
+            }
+            continue;
+        }
+
+        # Number literal: integer or float
+        if (is_digit(c)) {
+            let start = pos;
+            let is_flt = false;
+            while (pos < src_len) {
+                let d = mem_get_u8(src, pos);
+                if (d == 46) { # '.'
+                    is_flt = true;
+                    pos = pos + 1;
+                } else if (is_digit(d)) {
+                    pos = pos + 1;
+                } else {
+                    break;
+                }
+            }
+            kinds[count] = TOK_INT();
+            if (is_flt) {
+                kinds[count] = TOK_FLOAT();
+            }
+            poss[count] = start;
+            lens[count] = pos - start;
+            lines[count] = line;
+            count = count + 1;
+            continue;
+        }
+
+        # Identifier or Keyword
+        if (is_alpha(c)) {
+            let start = pos;
+            while (pos < src_len && is_alnum(mem_get_u8(src, pos))) {
+                pos = pos + 1;
+            }
+            let tok_len = pos - start;
+            let kind = classify_ident(src, start, tok_len);
+            kinds[count] = kind;
+            poss[count] = start;
+            lens[count] = tok_len;
+            lines[count] = line;
+            count = count + 1;
+            continue;
+        }
+
+        # String literal ("...")
+        if (c == 34) { # '"'
+            pos = pos + 1;
+            let start = pos;
+            while (pos < src_len && mem_get_u8(src, pos) != 34) {
+                if (mem_get_u8(src, pos) == 92) { # escape '\'
+                    pos = pos + 1;
+                }
+                pos = pos + 1;
+            }
+            kinds[count] = TOK_STR();
+            poss[count] = start;
+            lens[count] = pos - start;
+            lines[count] = line;
+            count = count + 1;
+            if (pos < src_len) {
+                pos = pos + 1; # skip closing quote
+            }
+            continue;
+        }
+
+        # Char literal ('c')
+        if (c == 39) { # '\''
+            pos = pos + 1;
+            let start = pos;
+            if (pos < src_len && mem_get_u8(src, pos) == 92) {
+                pos = pos + 1; # escape
+            }
+            pos = pos + 1;
+            kinds[count] = TOK_CHAR_LIT();
+            poss[count] = start;
+            lens[count] = pos - start;
+            lines[count] = line;
+            count = count + 1;
+            if (pos < src_len && mem_get_u8(src, pos) == 39) {
+                pos = pos + 1;
+            }
+            continue;
+        }
+
+        # Double-character operators (==, !=, <=, >=, &&, ||)
+        let next_c = 0;
+        if (pos + 1 < src_len) {
+            next_c = mem_get_u8(src, pos + 1);
+        }
+
+        if (c == 61 && next_c == 61) { # '=='
+            kinds[count] = TOK_EQ(); poss[count] = pos; lens[count] = 2; lines[count] = line;
+            count = count + 1; pos = pos + 2; continue;
+        }
+        if (c == 33 && next_c == 61) { # '!='
+            kinds[count] = TOK_NEQ(); poss[count] = pos; lens[count] = 2; lines[count] = line;
+            count = count + 1; pos = pos + 2; continue;
+        }
+        if (c == 60 && next_c == 61) { # '<='
+            kinds[count] = TOK_LTE(); poss[count] = pos; lens[count] = 2; lines[count] = line;
+            count = count + 1; pos = pos + 2; continue;
+        }
+        if (c == 62 && next_c == 61) { # '>='
+            kinds[count] = TOK_GTE(); poss[count] = pos; lens[count] = 2; lines[count] = line;
+            count = count + 1; pos = pos + 2; continue;
+        }
+        if (c == 38 && next_c == 38) { # '&&'
+            kinds[count] = TOK_AND(); poss[count] = pos; lens[count] = 2; lines[count] = line;
+            count = count + 1; pos = pos + 2; continue;
+        }
+        if (c == 124 && next_c == 124) { # '||'
+            kinds[count] = TOK_OR(); poss[count] = pos; lens[count] = 2; lines[count] = line;
+            count = count + 1; pos = pos + 2; continue;
+        }
+
+        # Single-character tokens
+        let matched = true;
+        let single_kind = 0;
+        if (c == 43) { single_kind = TOK_PLUS(); }
+        else if (c == 45) { single_kind = TOK_MINUS(); }
+        else if (c == 42) { single_kind = TOK_STAR(); }
+        else if (c == 47) { single_kind = TOK_SLASH(); }
+        else if (c == 37) { single_kind = TOK_PERCENT(); }
+        else if (c == 61) { single_kind = TOK_ASSIGN(); }
+        else if (c == 60) { single_kind = TOK_LT(); }
+        else if (c == 62) { single_kind = TOK_GT(); }
+        else if (c == 33) { single_kind = TOK_NOT(); }
+        else if (c == 40) { single_kind = TOK_LPAREN(); }
+        else if (c == 41) { single_kind = TOK_RPAREN(); }
+        else if (c == 123) { single_kind = TOK_LBRACE(); }
+        else if (c == 125) { single_kind = TOK_RBRACE(); }
+        else if (c == 91) { single_kind = TOK_LBRACKET(); }
+        else if (c == 93) { single_kind = TOK_RBRACKET(); }
+        else if (c == 44) { single_kind = TOK_COMMA(); }
+        else if (c == 59) { single_kind = TOK_SEMICOLON(); }
+        else if (c == 58) { single_kind = TOK_COLON(); }
+        else if (c == 46) { single_kind = TOK_DOT(); }
+        else { matched = false; }
+
+        if (matched) {
+            kinds[count] = single_kind;
+            poss[count] = pos;
+            lens[count] = 1;
+            lines[count] = line;
+            count = count + 1;
+            pos = pos + 1;
+            continue;
+        }
+
+        # Unknown character - skip
+        pos = pos + 1;
+    }
+
+    # Append EOF token
+    kinds[count] = TOK_EOF();
+    poss[count] = pos;
+    lens[count] = 0;
+    lines[count] = line;
+    count = count + 1;
+
+    let res = LexerResult {
+        tokens_kind: kinds,
+        tokens_pos: poss,
+        tokens_len: lens,
+        tokens_line: lines,
+        count: count
+    };
+    return res;
+}
