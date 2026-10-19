@@ -1,64 +1,67 @@
 # ==============================================================================
 # Rubix Bootstrap Compiler: Parser & Code Generator
 # Written in 100% Pure Rubix (.ix)
+# Memory layout for ParserState heap object (11 QWORDs = 88 bytes):
+#   offset 0  (0x00): p_src         (int)
+#   offset 8  (0x08): p_src_len     (int)
+#   offset 16 (0x10): p_tokens_kind (int)
+#   offset 24 (0x18): p_tokens_pos  (int)
+#   offset 32 (0x20): p_tokens_len  (int)
+#   offset 40 (0x28): p_tokens_line (int)
+#   offset 48 (0x30): p_tok_count   (int)
+#   offset 56 (0x38): p_cur_tok     (int)
+#   offset 64 (0x40): p_symtab      (int heap ptr)
+#   offset 72 (0x48): p_em          (int heap ptr)
+#   offset 80 (0x50): p_label_ctr   (int)
 # ==============================================================================
 
 import "rubixc_bootstrap/src/tokens.ix";
 import "rubixc_bootstrap/src/symtab.ix";
 import "rubixc_bootstrap/src/codegen.ix";
 
-struct ParserState {
-    p_src: int,
-    p_src_len: int,
-    p_tokens_kind: int,
-    p_tokens_pos: int,
-    p_tokens_len: int,
-    p_tokens_line: int,
-    p_tok_count: int,
-    p_cur_tok: int,
-    p_symtab: SymbolTable,
-    p_em: CodeEmitter,
-    p_label_ctr: int
-}
-
-fn parser_create(src: int, src_len: int, res: LexerResult, em: CodeEmitter): ParserState {
+fn parser_create(src: int, src_len: int, res: int, em: int): int {
+    let p = alloc(88);
     let tab = symtab_create(256);
-    let p = ParserState {
-        p_src: src,
-        p_src_len: src_len,
-        p_tokens_kind: res.tokens_kind,
-        p_tokens_pos: res.tokens_pos,
-        p_tokens_len: res.tokens_len,
-        p_tokens_line: res.tokens_line,
-        p_tok_count: res.count,
-        p_cur_tok: 0,
-        p_symtab: tab,
-        p_em: em,
-        p_label_ctr: 1
-    };
+
+    mem_set_u64(p, 0, src);
+    mem_set_u64(p, 8, src_len);
+    mem_set_u64(p, 16, mem_get_u64(res, 0));  # tokens_kind
+    mem_set_u64(p, 24, mem_get_u64(res, 8));  # tokens_pos
+    mem_set_u64(p, 32, mem_get_u64(res, 16)); # tokens_len
+    mem_set_u64(p, 40, mem_get_u64(res, 24)); # tokens_line
+    mem_set_u64(p, 48, mem_get_u64(res, 32)); # count
+    mem_set_u64(p, 56, 0);                    # cur_tok = 0
+    mem_set_u64(p, 64, tab);
+    mem_set_u64(p, 72, em);
+    mem_set_u64(p, 80, 1);                    # label_ctr = 1
     return p;
 }
 
-fn cur_kind(p: ParserState): int {
-    if (p.p_cur_tok >= p.p_tok_count) {
+fn cur_kind(p: int): int {
+    let cur = mem_get_u64(p, 56);
+    let total = mem_get_u64(p, 48);
+    if (cur >= total) {
         return TOK_EOF();
     }
-    let k = p.p_tokens_kind;
-    return k[p.p_cur_tok];
+    let k_arr = mem_get_u64(p, 16);
+    return mem_get_u64(k_arr, cur * 8);
 }
 
-fn cur_pos(p: ParserState): int {
-    let ps = p.p_tokens_pos;
-    return ps[p.p_cur_tok];
+fn cur_pos(p: int): int {
+    let cur = mem_get_u64(p, 56);
+    let ps_arr = mem_get_u64(p, 24);
+    return mem_get_u64(ps_arr, cur * 8);
 }
 
-fn cur_len(p: ParserState): int {
-    let ls = p.p_tokens_len;
-    return ls[p.p_cur_tok];
+fn cur_len(p: int): int {
+    let cur = mem_get_u64(p, 56);
+    let ls_arr = mem_get_u64(p, 32);
+    return mem_get_u64(ls_arr, cur * 8);
 }
 
-fn advance(p: ParserState) {
-    p.p_cur_tok = p.p_cur_tok + 1;
+fn advance(p: int) {
+    let cur = mem_get_u64(p, 56);
+    mem_set_u64(p, 56, cur + 1);
 }
 
 # Forward parse integer literal from source bytes
@@ -75,27 +78,29 @@ fn parse_int_val(src: int, pos: int, len: int): int {
 
 # --- Expression Parsing (Precedence Climbing) ---
 
-fn parse_primary(p: ParserState) {
+fn parse_primary(p: int) {
     let kind = cur_kind(p);
+    let em = mem_get_u64(p, 72);
+    let src = mem_get_u64(p, 0);
 
     # Number literal
     if (kind == TOK_INT()) {
-        let val = parse_int_val(p.p_src, cur_pos(p), cur_len(p));
-        emit_str(p.p_em, "    mov rax, ");
-        emit_int(p.p_em, val);
-        emit_newline(p.p_em);
+        let val = parse_int_val(src, cur_pos(p), cur_len(p));
+        emit_str(em, "    mov rax, ");
+        emit_int(em, val);
+        emit_newline(em);
         advance(p);
         return;
     }
 
     # Boolean literals
     if (kind == TOK_TRUE()) {
-        emit_str(p.p_em, "    mov rax, 1\n");
+        emit_str(em, "    mov rax, 1\n");
         advance(p);
         return;
     }
     if (kind == TOK_FALSE()) {
-        emit_str(p.p_em, "    mov rax, 0\n");
+        emit_str(em, "    mov rax, 0\n");
         advance(p);
         return;
     }
@@ -119,25 +124,25 @@ fn parse_primary(p: ParserState) {
         # Check if function call: ident '(' ... ')'
         if (cur_kind(p) == TOK_LPAREN()) {
             advance(p); # skip '('
-            # Skip arguments for now until closing ')'
             while (cur_kind(p) != TOK_RPAREN() && cur_kind(p) != TOK_EOF()) {
                 advance(p);
             }
             if (cur_kind(p) == TOK_RPAREN()) {
                 advance(p);
             }
-            emit_str(p.p_em, "    call ");
-            emit_bytes(p.p_em, p.p_src + id_pos, id_len);
-            emit_newline(p.p_em);
+            emit_str(em, "    call ");
+            emit_bytes(em, src + id_pos, id_len);
+            emit_newline(em);
             return;
         }
 
         # Otherwise variable lookup
-        let offset = symtab_find(p.p_symtab, p.p_src, id_pos, id_len);
+        let tab = mem_get_u64(p, 64);
+        let offset = symtab_find(tab, src, id_pos, id_len);
         if (offset != -1) {
-            emit_str(p.p_em, "    mov rax, QWORD PTR [rbp - ");
-            emit_int(p.p_em, offset);
-            emit_str(p.p_em, "]\n");
+            emit_str(em, "    mov rax, QWORD PTR [rbp - ");
+            emit_int(em, offset);
+            emit_str(em, "]\n");
         }
         return;
     }
@@ -145,91 +150,96 @@ fn parse_primary(p: ParserState) {
     advance(p);
 }
 
-# Multiplication, Division, Modulo (*, /, %)
-fn parse_multiplicative(p: ParserState) {
+# Multiplication, Division, Modulo (*, /, %) with division-by-zero guards
+fn parse_multiplicative(p: int) {
     parse_primary(p);
+    let em = mem_get_u64(p, 72);
 
     while (cur_kind(p) == TOK_STAR() || cur_kind(p) == TOK_SLASH() || cur_kind(p) == TOK_PERCENT()) {
         let op = cur_kind(p);
         advance(p);
 
-        emit_str(p.p_em, "    push rax\n");
+        emit_str(em, "    push rax\n");
         parse_primary(p);
 
         if (op == TOK_STAR()) {
-            emit_str(p.p_em, "    pop rbx\n    imul rax, rbx\n");
+            emit_str(em, "    pop rbx\n    imul rax, rbx\n");
         } else if (op == TOK_SLASH()) {
-            emit_str(p.p_em, "    mov rbx, rax\n    pop rax\n    cqo\n    idiv rbx\n");
+            # Division by zero guard: test rbx, rbx; jz __rubix_div_zero_error
+            emit_str(em, "    mov rbx, rax\n    test rbx, rbx\n    jz __rubix_div_zero_error\n    pop rax\n    cqo\n    idiv rbx\n");
         } else if (op == TOK_PERCENT()) {
-            emit_str(p.p_em, "    mov rbx, rax\n    pop rax\n    cqo\n    idiv rbx\n    mov rax, rdx\n");
+            # Modulo by zero guard: test rbx, rbx; jz __rubix_div_zero_error
+            emit_str(em, "    mov rbx, rax\n    test rbx, rbx\n    jz __rubix_div_zero_error\n    pop rax\n    cqo\n    idiv rbx\n    mov rax, rdx\n");
         }
     }
 }
 
 # Addition and Subtraction (+, -)
-fn parse_additive(p: ParserState) {
+fn parse_additive(p: int) {
     parse_multiplicative(p);
+    let em = mem_get_u64(p, 72);
 
     while (cur_kind(p) == TOK_PLUS() || cur_kind(p) == TOK_MINUS()) {
         let op = cur_kind(p);
         advance(p);
 
-        emit_str(p.p_em, "    push rax\n");
+        emit_str(em, "    push rax\n");
         parse_multiplicative(p);
 
         if (op == TOK_PLUS()) {
-            emit_str(p.p_em, "    pop rbx\n    add rax, rbx\n");
+            emit_str(em, "    pop rbx\n    add rax, rbx\n");
         } else {
-            emit_str(p.p_em, "    mov rbx, rax\n    pop rax\n    sub rax, rbx\n");
+            emit_str(em, "    mov rbx, rax\n    pop rax\n    sub rax, rbx\n");
         }
     }
 }
 
 # Comparisons (==, !=, <, <=, >, >=)
-fn parse_comparison(p: ParserState) {
+fn parse_comparison(p: int) {
     parse_additive(p);
+    let em = mem_get_u64(p, 72);
 
     if (cur_kind(p) == TOK_EQ() || cur_kind(p) == TOK_NEQ() || cur_kind(p) == TOK_LT() || cur_kind(p) == TOK_LTE() || cur_kind(p) == TOK_GT() || cur_kind(p) == TOK_GTE()) {
         let op = cur_kind(p);
         advance(p);
 
-        emit_str(p.p_em, "    push rax\n");
+        emit_str(em, "    push rax\n");
         parse_additive(p);
 
-        emit_str(p.p_em, "    mov rbx, rax\n    pop rax\n    cmp rax, rbx\n");
+        emit_str(em, "    mov rbx, rax\n    pop rax\n    cmp rax, rbx\n");
         if (op == TOK_EQ()) {
-            emit_str(p.p_em, "    sete al\n");
+            emit_str(em, "    sete al\n");
         } else if (op == TOK_NEQ()) {
-            emit_str(p.p_em, "    setne al\n");
+            emit_str(em, "    setne al\n");
         } else if (op == TOK_LT()) {
-            emit_str(p.p_em, "    setl al\n");
+            emit_str(em, "    setl al\n");
         } else if (op == TOK_LTE()) {
-            emit_str(p.p_em, "    setle al\n");
+            emit_str(em, "    setle al\n");
         } else if (op == TOK_GT()) {
-            emit_str(p.p_em, "    setg al\n");
+            emit_str(em, "    setg al\n");
         } else if (op == TOK_GTE()) {
-            emit_str(p.p_em, "    setge al\n");
+            emit_str(em, "    setge al\n");
         }
-        emit_str(p.p_em, "    movzx rax, al\n");
+        emit_str(em, "    movzx rax, al\n");
     }
 }
 
-fn parse_expr(p: ParserState) {
+fn parse_expr(p: int) {
     parse_comparison(p);
 }
 
 # --- Statement Parsing ---
 
-fn parse_let_stmt(p: ParserState) {
+fn parse_let_stmt(p: int) {
     advance(p); # skip 'let'
     let v_pos = cur_pos(p);
     let v_len = cur_len(p);
     advance(p); # skip ident
 
-    # Optional type annotation
+    # Optional type annotation (: int, : float, etc.)
     if (cur_kind(p) == TOK_COLON()) {
         advance(p); # skip ':'
-        advance(p); # skip type
+        advance(p); # skip type keyword
     }
 
     # Expect '='
@@ -239,27 +249,31 @@ fn parse_let_stmt(p: ParserState) {
 
     parse_expr(p);
 
-    # Add variable to symbol table and emit stack store
-    let offset = symtab_add(p.p_symtab, p.p_src, v_pos, v_len);
-    emit_str(p.p_em, "    mov QWORD PTR [rbp - ");
-    emit_int(p.p_em, offset);
-    emit_str(p.p_em, "], rax\n");
+    let tab = mem_get_u64(p, 64);
+    let src = mem_get_u64(p, 0);
+    let em = mem_get_u64(p, 72);
+    let offset = symtab_add(tab, src, v_pos, v_len);
+
+    emit_str(em, "    mov QWORD PTR [rbp - ");
+    emit_int(em, offset);
+    emit_str(em, "], rax\n");
 
     if (cur_kind(p) == TOK_SEMICOLON()) {
         advance(p);
     }
 }
 
-fn parse_return_stmt(p: ParserState) {
+fn parse_return_stmt(p: int) {
     advance(p); # skip 'return'
     parse_expr(p);
-    emit_str(p.p_em, "    mov rsp, rbp\n    pop rbp\n    ret\n");
+    let em = mem_get_u64(p, 72);
+    emit_str(em, "    mov rsp, rbp\n    pop rbp\n    ret\n");
     if (cur_kind(p) == TOK_SEMICOLON()) {
         advance(p);
     }
 }
 
-fn parse_statement(p: ParserState) {
+fn parse_statement(p: int) {
     let k = cur_kind(p);
     if (k == TOK_LET()) {
         parse_let_stmt(p);
@@ -274,22 +288,26 @@ fn parse_statement(p: ParserState) {
 }
 
 # Parse top-level function
-fn parse_fn_decl(p: ParserState) {
+fn parse_fn_decl(p: int) {
     advance(p); # skip 'fn'
 
     let fn_pos = cur_pos(p);
     let fn_len = cur_len(p);
     advance(p); # skip name
 
+    let em = mem_get_u64(p, 72);
+    let src = mem_get_u64(p, 0);
+
     # Emit function label and prologue
-    emit_str(p.p_em, ".globl ");
-    emit_bytes(p.p_em, p.p_src + fn_pos, fn_len);
-    emit_newline(p.p_em);
+    emit_str(em, ".globl ");
+    emit_bytes(em, src + fn_pos, fn_len);
+    emit_newline(em);
 
-    emit_bytes(p.p_em, p.p_src + fn_pos, fn_len);
-    emit_str(p.p_em, ":\n    push rbp\n    mov rbp, rsp\n    sub rsp, 128\n");
+    emit_bytes(em, src + fn_pos, fn_len);
+    emit_str(em, ":\n    push rbp\n    mov rbp, rsp\n    sub rsp, 128\n");
 
-    symtab_clear(p.p_symtab);
+    let tab = mem_get_u64(p, 64);
+    symtab_clear(tab);
 
     # Skip params '(...)' for now
     if (cur_kind(p) == TOK_LPAREN()) {
@@ -322,11 +340,15 @@ fn parse_fn_decl(p: ParserState) {
     }
 
     # Default epilogue if no return
-    emit_str(p.p_em, "    xor rax, rax\n    mov rsp, rbp\n    pop rbp\n    ret\n");
+    emit_str(em, "    xor rax, rax\n    mov rsp, rbp\n    pop rbp\n    ret\n");
 }
 
-fn parse_full_program(p: ParserState) {
-    emit_str(p.p_em, ".intel_syntax noprefix\n.text\n.globl _start\n_start:\n    call main\n    mov rdi, rax\n    mov rax, 60\n    syscall\n\n");
+fn parse_full_program(p: int) {
+    let em = mem_get_u64(p, 72);
+    emit_str(em, ".intel_syntax noprefix\n.text\n.globl _start\n_start:\n    call main\n    mov rdi, rax\n    mov rax, 60\n    syscall\n\n");
+
+    # Append runtime error handler for division-by-zero
+    emit_str(em, "__rubix_div_zero_error:\n    mov rax, 60\n    mov rdi, 1\n    syscall\n\n");
 
     while (cur_kind(p) != TOK_EOF()) {
         if (cur_kind(p) == TOK_FN()) {

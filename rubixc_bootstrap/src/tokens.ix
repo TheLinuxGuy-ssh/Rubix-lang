@@ -23,6 +23,7 @@ fn TOK_FALSE(): int { return 18; }
 fn TOK_CHAR_KW(): int { return 20; }
 fn TOK_BOOL_KW(): int { return 21; }
 fn TOK_FLOAT_KW(): int { return 22; }
+fn TOK_INT_KW(): int { return 23; }
 fn TOK_BREAK(): int { return 54; }
 fn TOK_CONTINUE(): int { return 55; }
 fn TOK_FOR(): int { return 56; }
@@ -54,11 +55,3 @@ fn TOK_OR(): int { return 51; }
 fn TOK_NOT(): int { return 52; }
 fn TOK_COLON(): int { return 53; }
 fn TOK_DOT(): int { return 57; }
-
-# Token representation structure
-struct Token {
-    kind: int,
-    pos: int,
-    len: int,
-    line: int
-}

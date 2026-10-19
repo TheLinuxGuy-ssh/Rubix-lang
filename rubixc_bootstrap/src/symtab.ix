@@ -1,6 +1,16 @@
 # ==============================================================================
 # Rubix Bootstrap Compiler: Symbol Table & Scoping
 # Written in 100% Pure Rubix (.ix)
+# Memory layout for SymbolTable heap object (9 QWORDs = 72 bytes):
+#   offset 0  (0x00): name_pos array pointer (int)
+#   offset 8  (0x08): name_len array pointer (int)
+#   offset 16 (0x10): offsets array pointer  (int)
+#   offset 24 (0x18): count                  (int)
+#   offset 32 (0x20): cur_stack_offset       (int)
+#   offset 40 (0x28): max_stack_offset       (int)
+#   offset 48 (0x30): scope_starts array     (int)
+#   offset 56 (0x38): scope_offsets array    (int)
+#   offset 64 (0x40): scope_depth            (int)
 # ==============================================================================
 
 # Substring comparison for symbol names
@@ -20,100 +30,97 @@ fn sym_name_match(src1: int, pos1: int, len1: int, src2: int, pos2: int, len2: i
     return true;
 }
 
-struct SymbolTable {
-    name_pos: int,
-    name_len: int,
-    offsets: int,
-    count: int,
-    cur_stack_offset: int,
-    max_stack_offset: int,
-    scope_starts: int,
-    scope_offsets: int,
-    scope_depth: int
-}
-
-fn symtab_create(capacity: int): SymbolTable {
+fn symtab_create(capacity: int): int {
+    let tab = alloc(72);
     let np = alloc(capacity * 8);
     let nl = alloc(capacity * 8);
     let off = alloc(capacity * 8);
     let ss = alloc(64 * 8);
     let so = alloc(64 * 8);
 
-    let tab = SymbolTable {
-        name_pos: np,
-        name_len: nl,
-        offsets: off,
-        count: 0,
-        cur_stack_offset: 0,
-        max_stack_offset: 0,
-        scope_starts: ss,
-        scope_offsets: so,
-        scope_depth: 0
-    };
+    mem_set_u64(tab, 0, np);
+    mem_set_u64(tab, 8, nl);
+    mem_set_u64(tab, 16, off);
+    mem_set_u64(tab, 24, 0); # count = 0
+    mem_set_u64(tab, 32, 0); # cur_stack_offset = 0
+    mem_set_u64(tab, 40, 0); # max_stack_offset = 0
+    mem_set_u64(tab, 48, ss);
+    mem_set_u64(tab, 56, so);
+    mem_set_u64(tab, 64, 0); # scope_depth = 0
     return tab;
 }
 
-fn symtab_clear(tab: SymbolTable) {
-    tab.count = 0;
-    tab.cur_stack_offset = 0;
-    tab.max_stack_offset = 0;
-    tab.scope_depth = 0;
+fn symtab_clear(tab: int) {
+    mem_set_u64(tab, 24, 0); # count = 0
+    mem_set_u64(tab, 32, 0); # cur_stack_offset = 0
+    mem_set_u64(tab, 40, 0); # max_stack_offset = 0
+    mem_set_u64(tab, 64, 0); # scope_depth = 0
 }
 
-fn symtab_enter_scope(tab: SymbolTable) {
-    let depth = tab.scope_depth;
-    let ss = tab.scope_starts;
-    let so = tab.scope_offsets;
-    ss[depth] = tab.count;
-    so[depth] = tab.cur_stack_offset;
-    tab.scope_depth = depth + 1;
+fn symtab_enter_scope(tab: int) {
+    let depth = mem_get_u64(tab, 64);
+    let ss = mem_get_u64(tab, 48);
+    let so = mem_get_u64(tab, 56);
+    let count = mem_get_u64(tab, 24);
+    let cur_off = mem_get_u64(tab, 32);
+
+    mem_set_u64(ss, depth * 8, count);
+    mem_set_u64(so, depth * 8, cur_off);
+    mem_set_u64(tab, 64, depth + 1);
 }
 
-fn symtab_exit_scope(tab: SymbolTable) {
-    if (tab.scope_depth > 0) {
-        let depth = tab.scope_depth - 1;
-        let ss = tab.scope_starts;
-        let so = tab.scope_offsets;
-        tab.count = ss[depth];
-        tab.cur_stack_offset = so[depth];
-        tab.scope_depth = depth;
+fn symtab_exit_scope(tab: int) {
+    let depth = mem_get_u64(tab, 64);
+    if (depth > 0) {
+        depth = depth - 1;
+        let ss = mem_get_u64(tab, 48);
+        let so = mem_get_u64(tab, 56);
+        let saved_count = mem_get_u64(ss, depth * 8);
+        let saved_cur_off = mem_get_u64(so, depth * 8);
+
+        mem_set_u64(tab, 24, saved_count);
+        mem_set_u64(tab, 32, saved_cur_off);
+        mem_set_u64(tab, 64, depth);
     }
 }
 
 # Add a symbol to the symbol table
-fn symtab_add(tab: SymbolTable, src: int, pos: int, len: int): int {
-    let new_offset = tab.cur_stack_offset + 8;
-    tab.cur_stack_offset = new_offset;
-    if (new_offset > tab.max_stack_offset) {
-        tab.max_stack_offset = new_offset;
+fn symtab_add(tab: int, src: int, pos: int, len: int): int {
+    let cur_off = mem_get_u64(tab, 32);
+    let new_offset = cur_off + 8;
+    mem_set_u64(tab, 32, new_offset);
+
+    let max_off = mem_get_u64(tab, 40);
+    if (new_offset > max_off) {
+        mem_set_u64(tab, 40, new_offset);
     }
 
-    let idx = tab.count;
-    let np = tab.name_pos;
-    let nl = tab.name_len;
-    let off = tab.offsets;
+    let idx = mem_get_u64(tab, 24);
+    let np = mem_get_u64(tab, 0);
+    let nl = mem_get_u64(tab, 8);
+    let off = mem_get_u64(tab, 16);
 
-    np[idx] = pos;
-    nl[idx] = len;
-    off[idx] = new_offset;
-    tab.count = idx + 1;
+    mem_set_u64(np, idx * 8, pos);
+    mem_set_u64(nl, idx * 8, len);
+    mem_set_u64(off, idx * 8, new_offset);
+    mem_set_u64(tab, 24, idx + 1);
 
     return new_offset;
 }
 
 # Lookup symbol in reverse scope order
-fn symtab_find(tab: SymbolTable, src: int, pos: int, len: int): int {
-    let i = tab.count;
-    let np = tab.name_pos;
-    let nl = tab.name_len;
-    let off = tab.offsets;
+fn symtab_find(tab: int, src: int, pos: int, len: int): int {
+    let i = mem_get_u64(tab, 24);
+    let np = mem_get_u64(tab, 0);
+    let nl = mem_get_u64(tab, 8);
+    let off = mem_get_u64(tab, 16);
 
     while (i > 0) {
         i = i - 1;
-        let p = np[i];
-        let l = nl[i];
+        let p = mem_get_u64(np, i * 8);
+        let l = mem_get_u64(nl, i * 8);
         if (sym_name_match(src, pos, len, src, p, l)) {
-            return off[i];
+            return mem_get_u64(off, i * 8);
         }
     }
     return 0 - 1; # not found (-1)

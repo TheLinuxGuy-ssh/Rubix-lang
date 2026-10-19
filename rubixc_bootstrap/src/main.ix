@@ -38,10 +38,11 @@ fn compile_source_to_asm(input_path: int, output_path: int): bool {
     print(bytes_read);
     print_str(" bytes)...\n");
 
-    # 2. Run Lexer
+    # 2. Run Lexer (returns int heap pointer to LexerResult: [kinds, poss, lens, lines, count])
     let lex_res = lex_source(src_buf, bytes_read, 65536);
+    let tok_count = mem_get_u64(lex_res, 32);
     print_str("[Rubix-in-Rubix] Emitted ");
-    print(lex_res.count);
+    print(tok_count);
     print_str(" tokens\n");
 
     # 3. Run Parser & Assembly Generator
@@ -61,13 +62,16 @@ fn compile_source_to_asm(input_path: int, output_path: int): bool {
         return false;
     }
 
-    file_write(out_fd, em.out_buf, em.out_len);
+    let em_buf = emitter_get_buf(em);
+    let em_len = emitter_get_len(em);
+
+    file_write(out_fd, em_buf, em_len);
     file_close(out_fd);
 
     print_str("[Rubix-in-Rubix] Successfully compiled -> ");
     print_str(output_path);
     print_str(" (");
-    print(em.out_len);
+    print(em_len);
     print_str(" bytes emitted)\n");
 
     free(src_buf, max_src);
