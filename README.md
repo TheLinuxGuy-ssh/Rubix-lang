@@ -10,8 +10,9 @@
   The 100% Pure x86-64 Assembly Language
 ```
 
-> **A compiled systems programming language whose entire compiler is written from scratch in 100% pure x86-64 assembly.**  
-> **Zero libc. Zero C. Zero Python. Zero LLVM. Direct Linux kernel syscalls.**
+> **A sovereign systems programming language whose entire compiler is written from scratch in 100% pure x86-64 assembly.**  
+> **Zero libc. Zero C. Zero Python. Zero LLVM. Zero WASM. Zero Virtual Machines.**  
+> **Direct native execution breaking the OS barrier across Linux, Windows, and macOS.**
 
 ---
 
@@ -19,10 +20,14 @@
 
 - **Pure Assembly Compiler**: The compiler itself is written completely in GNU x86-64 assembly (`as` + `ld`). No external dependencies or runtime libraries are needed.
 - **Tiny & Instant**: The compiler binary is only **~42 KB**, with sub-millisecond compilation times.
-- **Zero-Libc Executables**: Compiles `.ix` code directly into standalone Linux ELF64 native executables that communicate directly with the kernel via 64-bit syscalls.
+- **Zero OS Barrier (Universal Multi-OS Execution)**:
+  - Compiles `.ix` code into standalone native executables equipped with an adaptive runtime.
+  - **No WASM, No Virtual Machine**: Executes directly on bare silicon across **Linux, Windows, and macOS**.
+  - **Dynamic Host OS Detection**: Automatically determines the host OS at binary entry (`rubix_host_os`).
+  - **In-Memory Windows Resolver**: Walks the Windows PEB (`gs:[0x60]`) in pure assembly to resolve `kernel32.dll` API exports without external import tables.
 - **Rich Language Features**:
   - `for` and `while` loops with `break`, `continue`, and arbitrary nesting
-  - Dynamic heap allocation (`alloc`, `free`) using Linux `sys_mmap` and `sys_munmap`
+  - Dynamic heap allocation (`alloc`, `free`) using Linux `sys_mmap` or Windows `VirtualAlloc`
   - Dynamic array indexing (`arr[i] = val`) and array literal syntax (`[1, 2, 3]`)
   - First-class function calls with unbounded parameter counts (>6 parameters supported via AMD64 ABI registers + stack spills)
   - Multi-file module imports (`import "lib.ix"`)
@@ -69,9 +74,15 @@
                                          │  (as + ld)
                                          ▼
                        +-----------------------------------+
-                       |   Standalone ELF64 Executable     |
-                       |  (Direct Linux Syscalls / No C)   |
+                       |    Universal Native Executable    |
+                       |  (Direct Syscalls / No C / No VM) |
                        +-----------------------------------+
+                                         │
+                 ┌───────────────────────┼───────────────────────┐
+                 ▼                       ▼                       ▼
+           [Host: Linux]          [Host: Windows]          [Host: macOS]
+           Direct Linux           Dynamic kernel32        Direct Darwin
+             Syscalls            PEB Export Resolver         Syscalls
 ```
 
 ---
@@ -212,6 +223,20 @@ Every Rubix binary includes a built-in standard library with zero external runti
 | | `math_sqrt(n)` | Integer square root ($\lfloor\sqrt{n}\rfloor$) |
 | **Memory** | `alloc(bytes)` | Allocates memory via `sys_mmap` (syscall 9) |
 | | `free(ptr, bytes)` | Releases memory via `sys_munmap` (syscall 11) |
+
+### 8. Universal Multi-OS Architecture (Linux, Windows, macOS)
+Rubix binaries break the operating system barrier by incorporating an adaptive native runtime:
+- **Multi-OS Entry Points**: Defines `_start`, `_start_linux`, `_start_windows`, and `_start_macos`. The host kernel's loader jumps directly to its corresponding entry vector.
+- **Dynamic Host OS Detection**: Automatically sets `rubix_host_os` (1 = Linux, 2 = Windows, 3 = macOS).
+- **Universal System Dispatchers**:
+  - `__rubix_sys_write`: Linux `sys_write` / Windows `WriteFile` / macOS `0x2000004`
+  - `__rubix_sys_read`: Linux `sys_read` / Windows `ReadFile` / macOS `0x2000003`
+  - `__rubix_sys_open`: Linux `sys_open` / macOS `0x2000005`
+  - `__rubix_sys_close`: Linux `sys_close` / macOS `0x2000006`
+  - `__rubix_sys_mmap`: Linux `sys_mmap` / Windows `VirtualAlloc` / macOS `0x20000c5`
+  - `__rubix_sys_munmap`: Linux `sys_munmap` / Windows `VirtualFree` / macOS `0x2000049`
+  - `__rubix_sys_exit`: Linux `sys_exit` / Windows `ExitProcess` / macOS `0x2000001`
+- **Windows PEB / kernel32 Dynamic Resolver**: On Windows x64, dynamically walks the Process Environment Block (`gs:[0x60]`), locates `kernel32.dll`, and resolves API exports without relying on external DLL import tables.
 
 ---
 

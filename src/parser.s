@@ -2309,7 +2309,7 @@ str_colon_nl:         .string ":\n"
 str_push_mov_rbp:     .string "    push rbp\n    mov rbp, rsp\n    sub rsp, "
 str_fn_epilogue:      .string "    xor rax, rax\n    mov rsp, rbp\n    pop rbp\n    ret\n\n"
 str_main_name:        .string "main"
-str_start_entry:      .string ".global _start\n_start:\n    call main\n    mov rdi, rax\n    mov rax, 60\n    syscall\n\n"
+str_start_entry:      .string ".global _start, _start_linux, _start_windows, _start_macos\n_start:\n_start_linux:\n    mov QWORD PTR [rubix_host_os], 1\n    jmp _start_common\n_start_windows:\n    mov QWORD PTR [rubix_host_os], 2\n    jmp _start_common\n_start_macos:\n    mov QWORD PTR [rubix_host_os], 3\n    jmp _start_common\n_start_common:\n    cmp QWORD PTR [rubix_host_os], 2\n    jne .L_init_skip_win\n    call __rubix_win64_init\n.L_init_skip_win:\n    call main\n    mov rdi, rax\n    jmp __rubix_sys_exit\n\n"
 
 str_mov_qword_rbp:    .string "    mov QWORD PTR [rbp - "
 str_close_bracket_comma: .string "], "
