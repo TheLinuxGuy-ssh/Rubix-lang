@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPILER="$DIR/rubix_compiler"
+
+# Ensure compiler is built
+if [ ! -f "$COMPILER" ]; then
+    echo "[Rubix] Building compiler from assembly..."
+    as "$DIR/src/main.s" -o "$DIR/rubix_compiler.o"
+    ld "$DIR/rubix_compiler.o" -o "$COMPILER"
+    rm -f "$DIR/rubix_compiler.o"
+fi
+
+RUN_IMMEDIATELY=0
+if [ "$1" = "-r" ] || [ "$1" = "--run" ]; then
+    RUN_IMMEDIATELY=1
+    shift
+fi
+
+if [ -z "$1" ]; then
+    echo "Usage: ./rubixc [-r|--run] <source.ix> [output_binary]"
+    exit 1
+fi
+
+SRC_FILE="$1"
+BASE_NAME="$(basename "$SRC_FILE" .ix)"
+OUT_BIN="${2:-$BASE_NAME}"
+TMP_ASM="${BASE_NAME}.s"
+TMP_OBJ="${BASE_NAME}.o"
+
+# Step 1: Compile Rubix (.ix) source code to x86-64 assembly using our assembly compiler
+"$COMPILER" "$SRC_FILE" "$TMP_ASM"
+
+# Step 2: Assemble to ELF object file using GNU as
+as "$TMP_ASM" -o "$TMP_OBJ"
+
+# Step 3: Link directly to native ELF64 binary with zero libc dependencies
+ld "$TMP_OBJ" -o "$OUT_BIN"
+
+# Clean up intermediate files
+rm -f "$TMP_ASM" "$TMP_OBJ"
+
+echo "[Rubix] Successfully generated native executable: $OUT_BIN"
+
+if [ "$RUN_IMMEDIATELY" -eq 1 ]; then
+    echo "[Rubix] Running ./$OUT_BIN :"
+    echo "----------------------------------------"
+    set +e
+    "./$OUT_BIN"
+    EXIT_CODE=$?
+    set -e
+    echo "----------------------------------------"
+    echo "[Rubix] Exited with status: $EXIT_CODE"
+    exit $EXIT_CODE
+fi

@@ -1,0 +1,5 @@
+# First Rubix Language Program
+fn main() {
+    print_str("Hello from Rubix language written in pure x86-64 assembly!\n")
+    return 0
+}

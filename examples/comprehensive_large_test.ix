@@ -1,0 +1,326 @@
+import "examples/large_algorithms.ix";
+
+# ---------------------------------------------------------
+# Test 1: Sieve of Eratosthenes (1,000 numbers on heap)
+# ---------------------------------------------------------
+fn test_sieve_of_eratosthenes(): bool {
+    print_str("Test 1: Dynamic Heap Sieve of Eratosthenes (limit=1000)...\n");
+    let limit = 1000;
+    let bytes = limit * 8;
+    let is_prime = alloc(bytes);
+
+    # Initialize all numbers as prime (1), except 0 and 1
+    let i = 0;
+    while (i < limit) {
+        if (i < 2) {
+            is_prime[i] = 0;
+        } else {
+            is_prime[i] = 1;
+        }
+        i = i + 1;
+    }
+
+    # Sieve logic
+    let p = 2;
+    while (p * p < limit) {
+        if (is_prime[p] == 1) {
+            let multiple = p * p;
+            while (multiple < limit) {
+                is_prime[multiple] = 0;
+                multiple = multiple + p;
+            }
+        }
+        p = p + 1;
+    }
+
+    # Count total primes < 1000
+    let count = 0;
+    i = 0;
+    while (i < limit) {
+        if (is_prime[i] == 1) {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+
+    print_str("  Total primes found under 1000: ");
+    print(count);
+
+    # Free memory
+    free(is_prime, bytes);
+
+    # The exact number of prime numbers < 1000 is 168.
+    if (count == 168) {
+        print_str("  [PASS] Sieve prime count verified (168 primes)\n");
+        return true;
+    } else {
+        print_str("  [FAIL] Expected 168 primes!\n");
+        return false;
+    }
+}
+
+# ---------------------------------------------------------
+# Test 2: Recursive Binary Search on Sorted Dynamic Array
+# ---------------------------------------------------------
+fn rec_bsearch(arr, low: int, high: int, target: int): int {
+    if (low > high) {
+        return -1;
+    }
+    let mid = (low + high) / 2;
+    let val = arr[mid];
+    if (val == target) {
+        return mid;
+    }
+    if (val > target) {
+        let new_high = mid - 1;
+        return rec_bsearch(arr, low, new_high, target);
+    } else {
+        let new_low = mid + 1;
+        return rec_bsearch(arr, new_low, high, target);
+    }
+}
+
+fn test_sorting_and_recursive_search(): bool {
+    print_str("Test 2: Sorting 250 elements + Recursive Binary Search...\n");
+    let n = 250;
+    let bytes = n * 8;
+    let arr = alloc(bytes);
+
+    # Populate with pseudo-random numbers
+    let seed = 12345;
+    let i = 0;
+    while (i < n) {
+        seed = (seed * 1103515 + 12345) % 50000;
+        if (seed < 0) {
+            seed = -seed;
+        }
+        arr[i] = seed;
+        i = i + 1;
+    }
+
+    # Pick an element before sorting to verify we can find it
+    let target = arr[125];
+
+    # Sort using bubble sort from imported module
+    bubble_sort(arr, n);
+
+    # Verify sorted order
+    let sorted_ok: bool = verify_sorted(arr, n);
+    if (!sorted_ok) {
+        print_str("  [FAIL] Array is not properly sorted!\n");
+        free(arr, bytes);
+        return false;
+    }
+
+    # Find the target with recursive binary search
+    let found_idx = rec_bsearch(arr, 0, n - 1, target);
+    if (found_idx < 0) {
+        print_str("  [FAIL] Recursive binary search failed to find target!\n");
+        free(arr, bytes);
+        return false;
+    }
+    if (arr[found_idx] != target) {
+        print_str("  [FAIL] Target at found index does not match!\n");
+        free(arr, bytes);
+        return false;
+    }
+
+    # Search for an element guaranteed not in array (e.g. -999)
+    let missing_idx = rec_bsearch(arr, 0, n - 1, -999);
+    if (missing_idx != -1) {
+        print_str("  [FAIL] Binary search found a non-existent element!\n");
+        free(arr, bytes);
+        return false;
+    }
+
+    free(arr, bytes);
+    print_str("  [PASS] 250 elements sorted & recursive search succeeded\n");
+    return true;
+}
+
+# ---------------------------------------------------------
+# Test 3: Prefix Sums & Range Queries (100 elements)
+# ---------------------------------------------------------
+fn test_prefix_sums(): bool {
+    print_str("Test 3: Prefix Sum Range Queries (100 elements)...\n");
+    let n = 100;
+    let bytes = n * 8;
+    let vals = alloc(bytes);
+    let pref = alloc(bytes);
+
+    # Fill vals with consecutive odd numbers: 1, 3, 5, 7 ...
+    # Sum of first k odd numbers is known to be k^2!
+    let i = 0;
+    while (i < n) {
+        vals[i] = 2 * i + 1;
+        if (i == 0) {
+            pref[0] = vals[0];
+        } else {
+            let prev_idx = i - 1;
+            pref[i] = pref[prev_idx] + vals[i];
+        }
+        i = i + 1;
+    }
+
+    # Verify prefix sums against k^2
+    let all_match: bool = true;
+    let k = 1;
+    while (k <= n) {
+        let idx = k - 1;
+        let expected = k * k;
+        let actual = pref[idx];
+        if (expected != actual) {
+            all_match = false;
+        }
+        k = k + 1;
+    }
+
+    free(vals, bytes);
+    free(pref, bytes);
+
+    if (all_match) {
+        print_str("  [PASS] Prefix sum invariant (sum of first k odds == k^2) hold for all 100 elements\n");
+        return true;
+    } else {
+        print_str("  [FAIL] Prefix sum invariant failed!\n");
+        return false;
+    }
+}
+
+# ---------------------------------------------------------
+# Test 4: 4x4 Matrix Transpose & Dot Product Verification
+# ---------------------------------------------------------
+fn test_matrix_transpose_and_mult(): bool {
+    print_str("Test 4: 4x4 Matrix Transpose & Multiplication on Heap...\n");
+    let dim = 4;
+    let count = dim * dim;
+    let bytes = count * 8;
+
+    let mat_m = alloc(bytes);
+    let mat_t = alloc(bytes);
+    let mat_prod = alloc(bytes);
+
+    # Initialize M with values 1..16
+    let r = 0;
+    let counter = 1;
+    while (r < dim) {
+        let c = 0;
+        while (c < dim) {
+            matrix_set(mat_m, dim, r, c, counter);
+            counter = counter + 1;
+            c = c + 1;
+        }
+        r = r + 1;
+    }
+
+    # Compute Transpose: T[c][r] = M[r][c]
+    r = 0;
+    while (r < dim) {
+        let c = 0;
+        while (c < dim) {
+            let val = matrix_get(mat_m, dim, r, c);
+            matrix_set(mat_t, dim, c, r, val);
+            c = c + 1;
+        }
+        r = r + 1;
+    }
+
+    # Multiply Prod = M * T
+    matrix_mult(mat_m, mat_t, mat_prod, dim);
+
+    # The (0, 0) entry of M * T should be row 0 of M dotted with row 0 of M:
+    # 1^2 + 2^2 + 3^2 + 4^2 = 1 + 4 + 9 + 16 = 30
+    let prod_00 = matrix_get(mat_prod, dim, 0, 0);
+
+    # The (3, 3) entry should be row 3 dotted with row 3:
+    # 13^2 + 14^2 + 15^2 + 16^2 = 169 + 196 + 225 + 256 = 846
+    let prod_33 = matrix_get(mat_prod, dim, 3, 3);
+
+    free(mat_m, bytes);
+    free(mat_t, bytes);
+    free(mat_prod, bytes);
+
+    if (prod_00 == 30 && prod_33 == 846) {
+        print_str("  [PASS] Matrix transpose and dot product verified: (0,0)=30, (3,3)=846\n");
+        return true;
+    } else {
+        print_str("  [FAIL] Matrix products mismatch!\n");
+        return false;
+    }
+}
+
+# ---------------------------------------------------------
+# Test 5: While Loop Break & Continue Verification
+# ---------------------------------------------------------
+fn test_loop_break_continue(): bool {
+    print_str("Test 5: Loop Break & Continue semantics...\n");
+
+    # Sum only even numbers from 0 to 19, and break at 15
+    let sum = 0;
+    let i = 0;
+    while (i < 20) {
+        let cur = i;
+        i = i + 1;
+
+        if (cur > 14) {
+            break;
+        }
+        if (cur % 2 != 0) {
+            continue;
+        }
+        sum = sum + cur;
+    }
+
+    # Evens < 15: 0 + 2 + 4 + 6 + 8 + 10 + 12 + 14 = 56
+    if (sum == 56) {
+        print_str("  [PASS] Break and Continue correctly evaluated sum = 56\n");
+        return true;
+    } else {
+        print_str("  [FAIL] Expected sum 56, got: ");
+        print(sum);
+        return false;
+    }
+}
+
+# ---------------------------------------------------------
+# Test 6: Deep Call Stack with 8 Parameters & Array Passing
+# ---------------------------------------------------------
+fn test_unbounded_params_and_arrays(): bool {
+    print_str("Test 6: 8-parameter function call & array passing...\n");
+    let arr = [10, 20, 30, 40];
+
+    # Call imported 8-parameter function
+    # poly = (10*2) + (20*3) + (30+40) + (50-60) = 20 + 60 + 70 - 10 = 140
+    let res = many_args_poly(arr[0], 2, arr[1], 3, arr[2], arr[3], 50, 60);
+
+    if (res == 140) {
+        print_str("  [PASS] 8-param call with array elements: res = 140\n");
+        return true;
+    } else {
+        print_str("  [FAIL] Expected 140, got: ");
+        print(res);
+        return false;
+    }
+}
+
+fn main() {
+    print_str("========================================================\n");
+    print_str("  Rubix Ultimate Grand Final System & Stress Test       \n");
+    print_str("========================================================\n");
+
+    let t1: bool = test_sieve_of_eratosthenes();
+    let t2: bool = test_sorting_and_recursive_search();
+    let t3: bool = test_prefix_sums();
+    let t4: bool = test_matrix_transpose_and_mult();
+    let t5: bool = test_loop_break_continue();
+    let t6: bool = test_unbounded_params_and_arrays();
+
+    if (t1 && t2 && t3 && t4 && t5 && t6) {
+        print_str("========================================================\n");
+        print_str("  >>> ALL 6 GRAND FINAL STRESS TESTS PASSED! <<<        \n");
+        print_str("========================================================\n");
+        return 0;
+    }
+    print_str("GRAND FINAL STRESS TEST FAILED!\n");
+    return 1;
+}

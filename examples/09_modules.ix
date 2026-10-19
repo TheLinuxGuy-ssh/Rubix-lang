@@ -1,0 +1,8 @@
+import "examples/math_lib.ix";
+
+fn main() {
+    print_str("--- Multi-file Module Import Test ---\n");
+    let res = compute_cube(4);
+    print(res);
+    return 0;
+}

@@ -1,0 +1,32 @@
+# Prime number test in Rubix language
+
+fn is_prime(n) {
+    if n <= 1 {
+        return 0
+    }
+    let d = 2
+    while d * d <= n {
+        if n % d == 0 {
+            return 0
+        }
+        d = d + 1
+    }
+    return 1
+}
+
+fn main() {
+    print_str("--- Prime Numbers up to 50 in Rubix ---\n")
+    let num = 2
+    let count = 0
+    while num <= 50 {
+        if is_prime(num) == 1 {
+            print(num)
+            count = count + 1
+        }
+        num = num + 1
+    }
+
+    print_str("Total prime numbers found: ")
+    print(count)
+    return 0
+}

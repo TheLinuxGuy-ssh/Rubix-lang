@@ -1,0 +1,31 @@
+# Functions and recursion in Rubix
+
+fn max(a, b) {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fn fib(n) {
+    if n <= 1 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn main() {
+    print_str("--- Functions & Recursion Test ---\n")
+
+    print_str("max(42, 100) = ")
+    print(max(42, 100))
+
+    print_str("Fibonacci sequence (0 to 10):\n")
+    let i = 0
+    while i <= 10 {
+        print(fib(i))
+        i = i + 1
+    }
+
+    return 0
+}

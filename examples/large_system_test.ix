@@ -1,0 +1,203 @@
+import "examples/large_algorithms.ix";
+
+fn test_heap_and_sorting(): bool {
+    print_str("=== 1. Testing Heap Allocation, LCG, & BubbleSort ===\n");
+    let count = 200;
+    let bytes = count * 8;
+    let arr = alloc(bytes);
+
+    # Populate with pseudo-random numbers via LCG
+    let seed = 42;
+    let i = 0;
+    while (i < count) {
+        seed = (seed * 1103515 + 12345) % 10000;
+        if (seed < 0) {
+            seed = -seed;
+        }
+        arr[i] = seed;
+        i = i + 1;
+    }
+
+    # Record sample target before sorting
+    let target = arr[100];
+    print_str("Selected target to search: ");
+    print(target);
+
+    # Sort
+    bubble_sort(arr, count);
+
+    # Verify sort
+    let is_sorted: bool = verify_sorted(arr, count);
+    if (!is_sorted) {
+        print_str("FAIL: Array not sorted!\n");
+        free(arr, bytes);
+        return false;
+    }
+    print_str("  [PASS] 200-element dynamic array sorted successfully\n");
+
+    # Binary search
+    let idx = binary_search(arr, count, target);
+    if (idx < 0) {
+        print_str("FAIL: Target not found in binary search!\n");
+        free(arr, bytes);
+        return false;
+    }
+    print_str("Found target at sorted index: ");
+    print(idx);
+    print_str("  [PASS] Binary search on dynamic array\n");
+
+    free(arr, bytes);
+    return true;
+}
+
+fn test_matrix_operations(): bool {
+    print_str("=== 2. Testing 2D Matrix Multiplication on Heap ===\n");
+    let dim = 3;
+    let elements = dim * dim;
+    let bytes = elements * 8;
+
+    let mat_a = alloc(bytes);
+    let mat_b = alloc(bytes);
+    let mat_c = alloc(bytes);
+
+    # Initialize mat_a as identity matrix
+    let r = 0;
+    while (r < dim) {
+        let c = 0;
+        while (c < dim) {
+            if (r == c) {
+                matrix_set(mat_a, dim, r, c, 1);
+            } else {
+                matrix_set(mat_a, dim, r, c, 0);
+            }
+            c = c + 1;
+        }
+        r = r + 1;
+    }
+
+    # Initialize mat_b with values: 1 to 9
+    let val = 1;
+    r = 0;
+    while (r < dim) {
+        let c = 0;
+        while (c < dim) {
+            matrix_set(mat_b, dim, r, c, val);
+            val = val + 1;
+            c = c + 1;
+        }
+        r = r + 1;
+    }
+
+    # Multiply: C = A * B. Since A is Identity, C must equal B!
+    matrix_mult(mat_a, mat_b, mat_c, dim);
+
+    # Verify C == B
+    r = 0;
+    let ok: bool = true;
+    while (r < dim) {
+        let c = 0;
+        while (c < dim) {
+            let vb = matrix_get(mat_b, dim, r, c);
+            let vc = matrix_get(mat_c, dim, r, c);
+            if (vb != vc) {
+                ok = false;
+            }
+            c = c + 1;
+        }
+        r = r + 1;
+    }
+
+    free(mat_a, bytes);
+    free(mat_b, bytes);
+    free(mat_c, bytes);
+
+    if (ok) {
+        print_str("  [PASS] Matrix multiplication A(Identity) * B == B\n");
+        return true;
+    } else {
+        print_str("FAIL: Matrix multiplication mismatch!\n");
+        return false;
+    }
+}
+
+fn test_literals_and_types(): bool {
+    print_str("=== 3. Testing Array Literals, Booleans, & Logic ===\n");
+
+    let lit = [11, 22, 33, 44, 55, 66, 77, 88];
+    if (lit[0] != 11 || lit[7] != 88 || lit[3] != 44) {
+        print_str("FAIL: Array literal elements mismatch!\n");
+        return false;
+    }
+    print_str("  [PASS] Array literal indexing: lit[0]=11, lit[7]=88\n");
+
+    # Short-circuit logic tests
+    let t: bool = true;
+    let f: bool = false;
+    if (!(t && !f)) {
+        print_str("FAIL: Logic NOT or AND failed!\n");
+        return false;
+    }
+    if (!(f || t)) {
+        print_str("FAIL: Logic OR failed!\n");
+        return false;
+    }
+    print_str("  [PASS] Short-circuit boolean logic (&&, ||, !)\n");
+
+    # Character literals & print_char
+    print_str("  Characters: ");
+    print_char('R');
+    print_char('U');
+    print_char('B');
+    print_char('I');
+    print_char('X');
+    print_char(10);
+    print_str("  [PASS] Character literals and print_char\n");
+    return true;
+}
+
+fn test_unbounded_calls(): bool {
+    print_str("=== 4. Testing 8-Parameter Functions & Scoping ===\n");
+    # 2*3 + 4*5 + (6+7) + (8-9) = 6 + 20 + 13 - 1 = 38
+    let res = many_args_poly(2, 3, 4, 5, 6, 7, 8, 9);
+    if (res != 38) {
+        print_str("FAIL: many_args_poly returned: ");
+        print(res);
+        return false;
+    }
+    print_str("  [PASS] 8-parameter calling: result == 38\n");
+
+    # Block scope shadowing test
+    let x = 100;
+    if (true) {
+        let x = 500;
+        if (x != 500) {
+            return false;
+        }
+    }
+    if (x != 100) {
+        print_str("FAIL: Variable scoping corrupted!\n");
+        return false;
+    }
+    print_str("  [PASS] Block scoping & local variable shadowing\n");
+    return true;
+}
+
+fn main() {
+    print_str("==================================================\n");
+    print_str("     Rubix Comprehensive Large System Stress Test  \n");
+    print_str("==================================================\n");
+
+    let t1: bool = test_heap_and_sorting();
+    let t2: bool = test_matrix_operations();
+    let t3: bool = test_literals_and_types();
+    let t4: bool = test_unbounded_calls();
+
+    if (t1 && t2 && t3 && t4) {
+        print_str("==================================================\n");
+        print_str("    >>> ALL LARGE SYSTEM TESTS PASSED! <<<        \n");
+        print_str("==================================================\n");
+        return 0;
+    }
+    print_str("STRESS TEST FAILED!\n");
+    return 1;
+}

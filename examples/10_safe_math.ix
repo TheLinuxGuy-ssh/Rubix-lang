@@ -1,0 +1,8 @@
+fn main() {
+    print_str("--- Integer Overflow Test ---\n");
+    let max = 9223372036854775807;
+    print(max);
+    let bad = max + 1;
+    print(bad);
+    return 0;
+}

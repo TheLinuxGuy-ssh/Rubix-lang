@@ -1,0 +1,92 @@
+# Test 11: Complete For Loops in Rubix
+# Tests standard for loop, break, continue, nesting, and array indexing.
+
+fn test_basic_for(): bool {
+    let sum = 0;
+    for (let i = 0; i < 10; i = i + 1) {
+        sum = sum + i;
+    }
+    # sum 0..9 = 45
+    if (sum == 45) {
+        print_str("  [PASS] Basic for loop sum = 45\n");
+        return true;
+    }
+    print_str("  [FAIL] Basic for loop sum mismatch\n");
+    return false;
+}
+
+fn test_for_break_continue(): bool {
+    let sum = 0;
+    for (let i = 0; i < 20; i = i + 1) {
+        if (i >= 10) {
+            break;
+        }
+        if (i % 2 == 0) {
+            continue;
+        }
+        sum = sum + i;
+    }
+    # Odds < 10: 1 + 3 + 5 + 7 + 9 = 25
+    if (sum == 25) {
+        print_str("  [PASS] For loop with break and continue sum = 25\n");
+        return true;
+    }
+    print_str("  [FAIL] For loop break/continue mismatch\n");
+    return false;
+}
+
+fn test_nested_for(): bool {
+    let count = 0;
+    let checksum = 0;
+    for (let i = 0; i < 5; i = i + 1) {
+        for (let j = 0; j < 4; j = j + 1) {
+            count = count + 1;
+            checksum = checksum + (i * 10 + j);
+        }
+    }
+    # 5 * 4 = 20 iterations
+    # checksum: sum_{i=0..4, j=0..3} (10*i + j) = 4 * 10 * (0+1+2+3+4) + 5 * (0+1+2+3)
+    # = 40 * 10 + 5 * 6 = 400 + 30 = 430
+    if (count == 20 && checksum == 430) {
+        print_str("  [PASS] Nested for loops: 20 iterations, checksum = 430\n");
+        return true;
+    }
+    print_str("  [FAIL] Nested for loop mismatch\n");
+    return false;
+}
+
+fn test_for_with_arrays(): bool {
+    let n = 8;
+    let arr = alloc(n * 8);
+
+    for (let i = 0; i < n; i = i + 1) {
+        arr[i] = (i + 1) * (i + 1);
+    }
+
+    let ok = true;
+    if (arr[0] != 1 || arr[1] != 4 || arr[7] != 64) {
+        ok = false;
+    }
+
+    free(arr, n * 8);
+    if (ok) {
+        print_str("  [PASS] For loop populating and checking dynamic array\n");
+        return true;
+    }
+    print_str("  [FAIL] For loop array mismatch\n");
+    return false;
+}
+
+fn main() {
+    print_str("=== Testing Rubix 'for' Loops ===\n");
+    let t1: bool = test_basic_for();
+    let t2: bool = test_for_break_continue();
+    let t3: bool = test_nested_for();
+    let t4: bool = test_for_with_arrays();
+
+    if (t1 && t2 && t3 && t4) {
+        print_str(">>> ALL FOR LOOP TESTS PASSED! <<<\n");
+        return 0;
+    }
+    return 1;
+}

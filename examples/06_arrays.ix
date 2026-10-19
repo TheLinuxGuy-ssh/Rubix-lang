@@ -1,0 +1,18 @@
+fn main() {
+    print_str("--- Array and Heap Allocation Test ---\n");
+    let arr = alloc(80);
+    arr[0] = 100;
+    arr[1] = 200;
+    arr[2] = arr[0] + arr[1];
+    print(arr[0]);
+    print(arr[1]);
+    print(arr[2]);
+    free(arr, 80);
+
+    print_str("--- Array Literal Test ---\n");
+    let list = [10, 20, 30, 40, 50];
+    print(list[0]);
+    print(list[3]);
+    print(list[4]);
+    return 0;
+}

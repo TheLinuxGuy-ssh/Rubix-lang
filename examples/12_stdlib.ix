@@ -1,0 +1,148 @@
+# Test 12: Rubix Standard Library
+# Tests File I/O (Linux syscalls), String Operations, Dynamic Printing, and Math Builtins.
+
+fn test_file_io(): bool {
+    print_str("Test 1: File I/O (open, write, read, close)...\n");
+
+    let path = "/tmp/rubix_io_test.txt";
+    # O_WRONLY | O_CREAT | O_TRUNC = 1 | 64 | 512 = 577
+    # Mode 0644 = 420
+    let fd = file_open(path, 577, 420);
+    if (fd < 0) {
+        print_str("  [FAIL] Failed to open file for writing\n");
+        return false;
+    }
+
+    let msg = "Rubix Pure Assembly File I/O Works!";
+    let msg_len = str_len(msg);
+    let bytes_written = file_write(fd, msg, msg_len);
+    file_close(fd);
+
+    if (bytes_written != msg_len) {
+        print_str("  [FAIL] Bytes written does not match length\n");
+        return false;
+    }
+
+    # Re-open for reading: O_RDONLY = 0
+    let read_fd = file_open(path, 0, 0);
+    if (read_fd < 0) {
+        print_str("  [FAIL] Failed to open file for reading\n");
+        return false;
+    }
+
+    let buf = alloc(128);
+    let bytes_read = file_read(read_fd, buf, 128);
+    file_close(read_fd);
+
+    # Null-terminate buffer at bytes_read
+    let byte_arr: int = buf;
+    # Note: buf is pointer to memory, let's compare using str_cmp
+    # Ensure null terminator:
+    # We can write 0 at buf + bytes_read:
+    let char_arr = buf;
+    # (Since bytes_read < 128, buf is zero-initialized by mmap, but let's verify str_cmp)
+    let cmp_res = str_cmp(buf, msg);
+
+    free(buf, 128);
+
+    if (bytes_read == msg_len && cmp_res == 0) {
+        print_str("  [PASS] File I/O: wrote and read back exact text\n");
+        return true;
+    }
+    print_str("  [FAIL] File content mismatch\n");
+    return false;
+}
+
+fn test_strings(): bool {
+    print_str("Test 2: String Operations (str_len, str_cmp, str_copy, str_cat, puts)...\n");
+
+    # 1. str_len
+    let l1 = str_len("Rubix");
+    let l2 = str_len("x86-64 Linux");
+    if (l1 != 5 || l2 != 12) {
+        print_str("  [FAIL] str_len mismatch\n");
+        return false;
+    }
+
+    # 2. str_cmp
+    let eq = str_cmp("apple", "apple");
+    let lt = str_cmp("apple", "banana");
+    let gt = str_cmp("banana", "apple");
+    if (eq != 0 || lt >= 0 || gt <= 0) {
+        print_str("  [FAIL] str_cmp comparison failed\n");
+        return false;
+    }
+
+    # 3. str_copy & str_cat
+    let buf = alloc(64);
+    str_copy(buf, "Hello ");
+    str_cat(buf, "Rubix!");
+
+    let cat_ok = str_cmp(buf, "Hello Rubix!");
+    if (cat_ok != 0) {
+        print_str("  [FAIL] str_copy/str_cat mismatch\n");
+        free(buf, 64);
+        return false;
+    }
+
+    print_str("  Dynamic print_str output: ");
+    print_str(buf);
+    print_str("\n");
+
+    free(buf, 64);
+    print_str("  [PASS] String routines & dynamic printing verified\n");
+    return true;
+}
+
+fn test_math(): bool {
+    print_str("Test 3: Math Routines (abs, min, max, pow, sqrt)...\n");
+
+    # abs
+    if (math_abs(-100) != 100 || math_abs(42) != 42 || math_abs(0) != 0) {
+        print_str("  [FAIL] math_abs failed\n");
+        return false;
+    }
+
+    # min & max
+    if (math_min(15, 42) != 15 || math_min(-10, -5) != -10) {
+        print_str("  [FAIL] math_min failed\n");
+        return false;
+    }
+    if (math_max(15, 42) != 42 || math_max(-10, -5) != -5) {
+        print_str("  [FAIL] math_max failed\n");
+        return false;
+    }
+
+    # pow
+    if (math_pow(2, 10) != 1024 || math_pow(3, 4) != 81 || math_pow(7, 0) != 1) {
+        print_str("  [FAIL] math_pow failed\n");
+        return false;
+    }
+
+    # sqrt
+    if (math_sqrt(144) != 12 || math_sqrt(100) != 10 || math_sqrt(50) != 7 || math_sqrt(0) != 0) {
+        print_str("  [FAIL] math_sqrt failed\n");
+        return false;
+    }
+
+    print_str("  [PASS] All math functions verified\n");
+    return true;
+}
+
+fn main() {
+    print_str("========================================================\n");
+    print_str("     Rubix Standard Library Test Suite                  \n");
+    print_str("========================================================\n");
+
+    let t1: bool = test_file_io();
+    let t2: bool = test_strings();
+    let t3: bool = test_math();
+
+    if (t1 && t2 && t3) {
+        print_str("========================================================\n");
+        print_str("   >>> ALL STANDARD LIBRARY TESTS PASSED! <<<           \n");
+        print_str("========================================================\n");
+        return 0;
+    }
+    return 1;
+}

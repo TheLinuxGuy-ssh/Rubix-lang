@@ -1,0 +1,26 @@
+# Arithmetic and Variables in Rubix
+fn main() {
+    print_str("--- Arithmetic & Expressions Test ---\n")
+    let a = 42
+    let b = 10
+
+    print_str("a + b = ")
+    print(a + b)
+
+    print_str("a - b = ")
+    print(a - b)
+
+    print_str("a * b = ")
+    print(a * b)
+
+    print_str("a / b = ")
+    print(a / b)
+
+    print_str("a % b = ")
+    print(a % b)
+
+    print_str("(a + b) * 2 - 4 = ")
+    print((a + b) * 2 - 4)
+
+    return 0
+}

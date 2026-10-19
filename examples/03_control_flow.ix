@@ -1,0 +1,23 @@
+# Control flow test: loops and conditionals in Rubix
+fn main() {
+    print_str("--- Control Flow Test: While loop & If/Else ---\n")
+    let i = 1
+    let sum = 0
+
+    while i <= 10 {
+        sum = sum + i
+        if i % 2 == 0 {
+            print_str("Even: ")
+            print(i)
+        } else {
+            print_str("Odd:  ")
+            print(i)
+        }
+        i = i + 1
+    }
+
+    print_str("Sum of 1 to 10 = ")
+    print(sum)
+
+    return 0
+}

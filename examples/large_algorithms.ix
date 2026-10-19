@@ -1,0 +1,92 @@
+# Rubix Large Test Module: Algorithms & Data Structures
+
+fn bubble_sort(arr, n: int) {
+    let i = 0;
+    while (i < n) {
+        let j = 0;
+        let limit = n - i - 1;
+        while (j < limit) {
+            let next_idx = j + 1;
+            let a = arr[j];
+            let b = arr[next_idx];
+            if (a > b) {
+                arr[j] = b;
+                arr[next_idx] = a;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn binary_search(arr, n: int, target: int): int {
+    let low = 0;
+    let high = n - 1;
+    while (low <= high) {
+        let mid = (low + high) / 2;
+        let val = arr[mid];
+        if (val == target) {
+            return mid;
+        }
+        if (val < target) {
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    return -1;
+}
+
+fn verify_sorted(arr, n: int): bool {
+    let i = 0;
+    let limit = n - 1;
+    while (i < limit) {
+        let next_idx = i + 1;
+        if (arr[i] > arr[next_idx]) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn matrix_get(m, cols: int, r: int, c: int): int {
+    let idx = r * cols + c;
+    return m[idx];
+}
+
+fn matrix_set(m, cols: int, r: int, c: int, val: int) {
+    let idx = r * cols + c;
+    m[idx] = val;
+    return 0;
+}
+
+fn matrix_mult(a, b, res, dim: int) {
+    let r = 0;
+    while (r < dim) {
+        let c = 0;
+        while (c < dim) {
+            let sum = 0;
+            let k = 0;
+            while (k < dim) {
+                let v1 = matrix_get(a, dim, r, k);
+                let v2 = matrix_get(b, dim, k, c);
+                sum = sum + v1 * v2;
+                k = k + 1;
+            }
+            matrix_set(res, dim, r, c, sum);
+            c = c + 1;
+        }
+        r = r + 1;
+    }
+    return 0;
+}
+
+fn many_args_poly(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int): int {
+    let term1 = a * b;
+    let term2 = c * d;
+    let term3 = e + f;
+    let term4 = g - h;
+    return term1 + term2 + term3 + term4;
+}

@@ -1,0 +1,27 @@
+# Binaries and build artifacts
+rubix_compiler
+*.o
+*.s
+!src/*.s
+*.out
+
+# Generated example binaries
+01_hello
+02_arithmetic
+03_control_flow
+04_functions
+05_prime_numbers
+06_arrays
+07_types_and_logic
+08_many_params
+09_modules
+10_safe_math
+11_for_loops
+12_stdlib
+large_system_test
+comprehensive_large_test
+hello
+arith
+cf
+fn_prog
+prime_app
