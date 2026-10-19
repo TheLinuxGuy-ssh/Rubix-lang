@@ -4,53 +4,183 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPILER="$DIR/rubix_compiler"
 
-# Ensure compiler is built
+# Ensure compiler is built and up to date with assembly source files
+REBUILD=0
 if [ ! -f "$COMPILER" ]; then
-    echo "[Rubix] Building compiler from assembly..."
+    REBUILD=1
+else
+    for src in "$DIR"/src/*.s "$DIR"/lib/*.s; do
+        if [ -f "$src" ] && [ "$src" -nt "$COMPILER" ]; then
+            REBUILD=1
+            break
+        fi
+    done
+fi
+
+if [ "$REBUILD" -eq 1 ]; then
+    echo "[Rubix] Compiler sources modified. Rebuilding compiler from assembly..."
     as "$DIR/src/main.s" -o "$DIR/rubix_compiler.o"
     ld "$DIR/rubix_compiler.o" -o "$COMPILER"
     rm -f "$DIR/rubix_compiler.o"
 fi
 
 RUN_IMMEDIATELY=0
-if [ "$1" = "-r" ] || [ "$1" = "--run" ]; then
-    RUN_IMMEDIATELY=1
-    shift
-fi
+COMPILE_ONLY=0
+DEBUG_MODE=0
+TARGET="linux"
+OUTPUT_NAME=""
+SOURCES=()
+OBJECTS=()
 
-if [ -z "$1" ]; then
-    echo "Usage: ./rubixc [-r|--run] <source.ix> [output_binary]"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -r|--run)
+            RUN_IMMEDIATELY=1
+            shift
+            ;;
+        -c)
+            COMPILE_ONLY=1
+            shift
+            ;;
+        -g|--debug)
+            DEBUG_MODE=1
+            shift
+            ;;
+        -t|--target)
+            TARGET="$2"
+            shift 2
+            ;;
+        --target=*)
+            TARGET="${1#*=}"
+            shift
+            ;;
+        -o)
+            OUTPUT_NAME="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Rubix (.ix) Universal Native Compiler Driver"
+            echo "Usage: ./rubixc [options] <source.ix | object.o ...> [-o output]"
+            echo ""
+            echo "Options:"
+            echo "  -r, --run          Compile and immediately execute the binary"
+            echo "  -c                 Compile to object file (.o) only, do not link"
+            echo "  -g, --debug        Generate full DWARF debug info for gdb/lldb"
+            echo "  -t, --target <os>  Target platform: linux (default), windows, or macos"
+            echo "  -o <name>          Specify output binary/object name"
+            echo "  -h, --help         Display this help message"
+            exit 0
+            ;;
+        *.ix)
+            SOURCES+=("$1")
+            shift
+            ;;
+        *.o)
+            OBJECTS+=("$1")
+            shift
+            ;;
+        *)
+            if [ -z "$OUTPUT_NAME" ]; then
+                OUTPUT_NAME="$1"
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [ ${#SOURCES[@]} -eq 0 ] && [ ${#OBJECTS[@]} -eq 0 ]; then
+    echo "Usage: ./rubixc [options] <source.ix | object.o ...> [-o output]"
+    echo "Try './rubixc --help' for all options."
     exit 1
 fi
 
-SRC_FILE="$1"
-BASE_NAME="$(basename "$SRC_FILE" .ix)"
-OUT_BIN="${2:-$BASE_NAME}"
-TMP_ASM="${BASE_NAME}.s"
-TMP_OBJ="${BASE_NAME}.o"
+AS_FLAGS=""
+if [ "$DEBUG_MODE" -eq 1 ]; then
+    AS_FLAGS="-g"
+fi
 
-# Step 1: Compile Rubix (.ix) source code to x86-64 assembly using our assembly compiler
-"$COMPILER" "$SRC_FILE" "$TMP_ASM"
+# Step 1: Compile any .ix sources into .o objects
+TMP_CREATED_OBJS=()
+TMP_CREATED_ASMS=()
 
-# Step 2: Assemble to ELF object file using GNU as
-as "$TMP_ASM" -o "$TMP_OBJ"
+for src in "${SOURCES[@]}"; do
+    base="$(basename "$src" .ix)"
+    asm_file="${base}.s"
+    obj_file="${base}.o"
+    
+    "$COMPILER" "$src" "$asm_file"
+    as $AS_FLAGS "$asm_file" -o "$obj_file"
+    TMP_CREATED_ASMS+=("$asm_file")
+    
+    if [ "$COMPILE_ONLY" -eq 1 ]; then
+        if [ -n "$OUTPUT_NAME" ] && [ ${#SOURCES[@]} -eq 1 ]; then
+            mv "$obj_file" "$OUTPUT_NAME"
+            echo "[Rubix] Compiled object: $OUTPUT_NAME"
+        else
+            echo "[Rubix] Compiled object: $obj_file"
+        fi
+        rm -f "$asm_file"
+    else
+        OBJECTS+=("$obj_file")
+        TMP_CREATED_OBJS+=("$obj_file")
+    fi
+done
 
-# Step 3: Link directly to native ELF64 binary with zero libc dependencies
-ld "$TMP_OBJ" -o "$OUT_BIN"
+if [ "$COMPILE_ONLY" -eq 1 ]; then
+    rm -f "${TMP_CREATED_ASMS[@]}"
+    exit 0
+fi
 
-# Clean up intermediate files
-rm -f "$TMP_ASM" "$TMP_OBJ"
+# Step 2: Determine output executable name
+FIRST_SRC="${SOURCES[0]:-${OBJECTS[0]}}"
+DEFAULT_BASE="$(basename "$FIRST_SRC" .ix)"
+DEFAULT_BASE="$(basename "$DEFAULT_BASE" .o)"
+OUT_BIN="${OUTPUT_NAME:-$DEFAULT_BASE}"
 
-echo "[Rubix] Successfully generated native executable: $OUT_BIN"
+# Step 3: Link according to target platform
+if [ "$TARGET" = "windows" ] || [ "$TARGET" = "win" ] || [ "$TARGET" = "win64" ]; then
+    case "$OUT_BIN" in
+        *.exe) ;;
+        *) OUT_BIN="${OUT_BIN}.exe" ;;
+    esac
+    ld -m i386pep --image-base 0x400000 -e _start_windows "${OBJECTS[@]}" -o "$OUT_BIN"
+    echo "[Rubix] Successfully generated Windows PE64 executable: $OUT_BIN"
+elif [ "$TARGET" = "macos" ] || [ "$TARGET" = "darwin" ]; then
+    echo "[Rubix] Emitting macOS Mach-O binary..."
+    # If a Mach-O cross linker is available, use it; otherwise provide object
+    if which x86_64-apple-darwin-ld >/dev/null 2>&1; then
+        x86_64-apple-darwin-ld -e _start_macos "${OBJECTS[@]}" -o "$OUT_BIN"
+        echo "[Rubix] Successfully linked macOS binary: $OUT_BIN"
+    else
+        echo "[Rubix] Note: Darwin cross-linker not installed on host. Emitted multi-OS object: ${OBJECTS[*]}"
+    fi
+else
+    # Linux native ELF64 linking with zero libc dependencies
+    ld "${OBJECTS[@]}" -o "$OUT_BIN"
+    echo "[Rubix] Successfully generated native ELF64 executable: $OUT_BIN"
+fi
 
+# Clean up temporary assembly and intermediate object files
+rm -f "${TMP_CREATED_ASMS[@]}" "${TMP_CREATED_OBJS[@]}"
+
+# Step 4: Run immediately if requested
 if [ "$RUN_IMMEDIATELY" -eq 1 ]; then
-    echo "[Rubix] Running ./$OUT_BIN :"
-    echo "----------------------------------------"
-    set +e
-    "./$OUT_BIN"
-    EXIT_CODE=$?
-    set -e
-    echo "----------------------------------------"
-    echo "[Rubix] Exited with status: $EXIT_CODE"
-    exit $EXIT_CODE
+    if [ "$TARGET" = "windows" ] || [ "$TARGET" = "win" ]; then
+        if which wine >/dev/null 2>&1; then
+            echo "[Rubix] Running via Wine: wine ./$OUT_BIN"
+            wine "./$OUT_BIN"
+        else
+            echo "[Rubix] Target is Windows PE binary: $OUT_BIN (run on Windows or install Wine to run locally)"
+        fi
+    else
+        echo "[Rubix] Running ./$OUT_BIN :"
+        echo "----------------------------------------"
+        set +e
+        "./$OUT_BIN"
+        EXIT_CODE=$?
+        set -e
+        echo "----------------------------------------"
+        echo "[Rubix] Exited with status: $EXIT_CODE"
+        exit $EXIT_CODE
+    fi
 fi

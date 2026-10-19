@@ -24,6 +24,7 @@
 .equ TOK_INT, 1
 .equ TOK_IDENT, 2
 .equ TOK_STR, 3
+.equ TOK_FLOAT, 4
 
 # Keywords & Literals
 .equ TOK_FN, 10
@@ -40,6 +41,7 @@
 .equ TOK_BOOL, 21
 .equ TOK_CHAR_KW, 20
 .equ TOK_BOOL_KW, 21
+.equ TOK_FLOAT_KW, 22
 
 # Operators & Punctuation
 .equ TOK_PLUS, 30
@@ -69,6 +71,8 @@
 .equ TOK_BREAK, 54          # break
 .equ TOK_CONTINUE, 55       # continue
 .equ TOK_FOR, 56            # for
+.equ TOK_DOT, 57            # .
+.equ TOK_STRUCT, 58         # struct
 
 # Expanded Buffer and Table Capacities (Zero-limit scalability)
 .equ SRC_BUF_SIZE, 8388608      # 8 MB source code buffer
@@ -83,3 +87,8 @@
 .equ MAX_PARAMS, 64             # Up to 64 function arguments
 .equ MAX_IMPORTS, 256           # Up to 256 imported modules
 .equ MAX_LOOP_DEPTH, 64         # Max nested loops for break/continue tracking
+.equ MAX_STRUCTS, 64            # Up to 64 user-defined structs
+.equ MAX_STRUCT_FIELDS, 16      # Up to 16 fields per struct
+.equ STRUCT_FIELD_SIZE, 48      # name(32) + name_len(8) + offset(8)
+.equ STRUCT_ENTRY_SIZE, 816     # name(32) + name_len(8) + field_count(8) + 16*48
+

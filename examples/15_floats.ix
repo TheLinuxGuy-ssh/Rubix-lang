@@ -1,0 +1,33 @@
+fn main() {
+    print_str("--- Rubix Float & Double Test ---\n");
+    let pi = 3.141592;
+    print_float(pi);
+
+    let neg = -127.500000;
+    print_float(neg);
+
+    let zero = 0.000000;
+    print_float(zero);
+
+    let a = 10.500000;
+    let b = 2.500000;
+    let sum = float_add(a, b);
+    print_float(sum);
+
+    let diff = float_sub(a, b);
+    print_float(diff);
+
+    let prod = float_mul(a, b);
+    print_float(prod);
+
+    let quot = float_div(a, b);
+    print_float(quot);
+
+    let int_val = float_to_int(a);
+    print(int_val);
+
+    let flt_val = int_to_float(42);
+    print_float(flt_val);
+
+    return 0;
+}

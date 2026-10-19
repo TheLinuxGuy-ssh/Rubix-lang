@@ -1,0 +1,36 @@
+struct Point {
+    x: int,
+    y: int
+}
+
+struct Player {
+    id: int,
+    score: int,
+    active: int
+}
+
+fn main() {
+    print_str("--- Rubix Struct Support Test ---\n");
+
+    let pt = Point { x: 100, y: 200 };
+    print(pt.x);
+    print(pt.y);
+
+    pt.x = 42;
+    pt.y = 84;
+    print(pt.x);
+    print(pt.y);
+
+    let hero = Player { id: 1, score: 9990, active: 1 };
+    print(hero.id);
+    print(hero.score);
+    print(hero.active);
+
+    hero.score = hero.score + 10;
+    print(hero.score);
+
+    free(pt, 16);
+    free(hero, 24);
+
+    return 0;
+}

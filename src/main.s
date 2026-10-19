@@ -75,11 +75,21 @@ label_ctr:        .quad 0
 imported_files_buf: .skip (MAX_IMPORTS * 256)
 imported_count:     .quad 0
 
+# Struct definitions tracking
+.align 16
+structs_buf:        .skip (MAX_STRUCTS * STRUCT_ENTRY_SIZE)
+structs_count:      .quad 0
+
+# DWARF and source file tracking
+input_file_path:    .quad 0
+last_loc_line:      .quad 0
+
 .section .text
 .include "src/strings.s"
 .include "src/io.s"
 .include "src/codegen.s"
 .include "src/symtab.s"
+.include "src/structs.s"
 .include "src/lexer.s"
 .include "src/parser.s"
 
@@ -92,6 +102,7 @@ _start:
     jl .L_usage_err
 
     mov r13, [rsp + 16]     # argv[1]: input file path
+    mov [input_file_path], r13
 
     # Check for argv[2]: output file path
     cmp r12, 3

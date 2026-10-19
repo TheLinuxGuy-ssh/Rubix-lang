@@ -177,6 +177,8 @@ lex_all:
     je .L_lex_op_rbracket
     cmp r13, '!'
     je .L_lex_op_not
+    cmp r13, '.'
+    je .L_lex_op_dot
 
     # Unrecognized character
     lea rdi, [msg_err_unknown_char]
@@ -215,19 +217,50 @@ lex_all:
     jmp .L_lex_slash_loop
 
 .L_lex_number:
+    mov r14, r12            # start of number
     xor rax, rax            # accumulator
     mov rbx, 10
 .L_lex_num_loop:
     movzx rcx, BYTE PTR [r12]
     cmp rcx, '0'
-    jl .L_lex_num_done
+    jl .L_lex_num_chk_dot
     cmp rcx, '9'
-    jg .L_lex_num_done
+    jg .L_lex_num_chk_dot
     sub rcx, '0'
     mul rbx                 # rax = rax * 10
     add rax, rcx
     inc r12
     jmp .L_lex_num_loop
+
+.L_lex_num_chk_dot:
+    cmp rcx, '.'
+    jne .L_lex_num_done
+    # Check if next char is digit
+    movzx rdx, BYTE PTR [r12 + 1]
+    cmp rdx, '0'
+    jl .L_lex_num_done
+    cmp rdx, '9'
+    jg .L_lex_num_done
+    # It is a float!
+    inc r12                 # skip '.'
+.L_lex_float_frac_loop:
+    movzx rcx, BYTE PTR [r12]
+    cmp rcx, '0'
+    jl .L_lex_float_done
+    cmp rcx, '9'
+    jg .L_lex_float_done
+    inc r12
+    jmp .L_lex_float_frac_loop
+
+.L_lex_float_done:
+    mov rdi, TOK_FLOAT
+    mov rsi, r14            # string start pointer
+    mov rdx, r12
+    sub rdx, r14            # string length
+    mov rcx, [cur_line]
+    call add_token
+    jmp .L_lex_loop
+
 .L_lex_num_done:
     mov rdi, TOK_INT
     mov rsi, rax            # value
@@ -442,8 +475,30 @@ lex_all:
     mov rcx, 3
     call str_cmp_n
     cmp rax, 0
-    jne .L_emit_ident
+    jne .L_kw_struct
     mov rdi, TOK_FOR
+    jmp .L_emit_kw
+
+.L_kw_struct:
+    mov rdi, r14
+    mov rsi, r15
+    lea rdx, [kw_struct]
+    mov rcx, 6
+    call str_cmp_n
+    cmp rax, 0
+    jne .L_kw_float
+    mov rdi, TOK_STRUCT
+    jmp .L_emit_kw
+
+.L_kw_float:
+    mov rdi, r14
+    mov rsi, r15
+    lea rdx, [kw_float]
+    mov rcx, 5
+    call str_cmp_n
+    cmp rax, 0
+    jne .L_emit_ident
+    mov rdi, TOK_FLOAT_KW
     jmp .L_emit_kw
 
 .L_emit_kw:
@@ -560,6 +615,10 @@ lex_all:
     inc r12
     mov rdi, TOK_NOT
     jmp .L_emit_simple_op
+.L_lex_op_dot:
+    inc r12
+    mov rdi, TOK_DOT
+    jmp .L_emit_simple_op
 
 .L_lex_char_literal:
     inc r12
@@ -659,6 +718,8 @@ kw_bool:   .string "bool"
 kw_break:  .string "break"
 kw_continue: .string "continue"
 kw_for:    .string "for"
+kw_struct: .string "struct"
+kw_float:  .string "float"
 
 msg_err_tok_overflow:     .string "Too many tokens (buffer overflow)"
 msg_err_unknown_char:     .string "Unrecognized character in source"

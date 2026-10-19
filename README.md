@@ -1,5 +1,18 @@
 # Rubix Programming Language (`.ix`)
 
+<p align="center">
+  <img src="assets/Logo.png" alt="Rubix Logo" width="760" />
+</p>
+
+<p align="center">
+  <img src="assets/rubix-ix-file-icon.svg" alt="Rubix .ix File Icon" width="84" />
+</p>
+
+<p align="center">
+  <strong>The 100% Pure x86-64 Assembly Systems Language</strong><br>
+  <em>Direct silicon execution breaking the OS barrier across Linux, Windows, and macOS with zero libc dependencies.</em>
+</p>
+
 ```
    ██████╗ ██╗   ██╗██████╗ ██╗██╗  ██╗
    ██╔══██╗██║   ██║██╔══██╗██║╚██╗██╔╝
@@ -7,12 +20,21 @@
    ██╔══██╗██║   ██║██╔══██╗██║ ██╔██╗ 
    ██║  ██║╚██████╔╝██████╔╝██║██╔╝ ██╗
    ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝╚═╝  ╚═╝
-  The 100% Pure x86-64 Assembly Language
 ```
 
 > **A sovereign systems programming language whose entire compiler is written from scratch in 100% pure x86-64 assembly.**  
 > **Zero libc. Zero C. Zero Python. Zero LLVM. Zero WASM. Zero Virtual Machines.**  
 > **Direct native execution breaking the OS barrier across Linux, Windows, and macOS.**
+
+---
+
+## 📄 The `.ix` File Format & Identity
+
+<p align="left">
+  <img src="assets/rubix-ix-file-icon.svg" alt="Rubix .ix File Icon" width="80" align="left" style="margin-right: 18px; margin-bottom: 12px;" />
+  Every Rubix program is authored in the sovereign <strong><code>.ix</code></strong> file format. Designed for pure systems-level performance, <code>.ix</code> source files are converted directly to native machine code by <code>rubix_compiler</code> and orchestrated via the <code>./rubixc</code> driver. The official <code>.ix</code> file badge reflects Rubix's sharp geometric lineage and uncompromising fidelity to native hardware.
+</p>
+<br clear="left"/>
 
 ---
 
@@ -239,7 +261,66 @@ Rubix binaries break the operating system barrier by incorporating an adaptive n
 - **Windows PEB / kernel32 Dynamic Resolver**: On Windows x64, dynamically walks the Process Environment Block (`gs:[0x60]`), locates `kernel32.dll`, and resolves API exports without relying on external DLL import tables.
 
 > [!NOTE]
-> **Platform & Verification Status**: The multi-OS entry vectors and Windows/macOS dispatch routines are structurally baked into the emitted assembly runtime. The compiler build toolchain (`as` + `ld`) and the 14-test verification suite currently run natively on **Linux x86-64**. The architecture is designed for multi-OS execution, with Linux currently serving as the fully exercised and verified reference host.
+> **Platform & Cross-Compilation**: Rubix natively targets both Linux ELF64 and Windows PE64 (`.exe`) platforms directly from GNU `ld` without external dependencies. The multi-OS entry vectors and Windows PEB resolver are verified on host systems.
+
+---
+
+## 💎 Advanced Systems Capabilities
+
+### 1. Floating-Point Numbers (`f64` / Double Precision)
+Full IEEE-754 64-bit double-precision floating-point literal scanning, SSE/XMM instructions, and high-precision formatting:
+```rubix
+let pi = 3.141592;
+let rad = 2.5;
+let area = float_mul(pi, float_mul(rad, rad));
+print_float(area); // 19.634950
+```
+Built-in math routines: `float_add`, `float_sub`, `float_mul`, `float_div`, `float_to_int`, `int_to_float`, and `print_float`.
+
+### 2. Struct Declarations & Dynamic Instances
+User-defined compound data structures with compile-time offset layout, heap instantiation, and member access/mutation:
+```rubix
+struct Vector3 {
+    x: int,
+    y: int,
+    z: int
+}
+
+fn main() {
+    let v = Vector3 { x: 10, y: 20, z: 30 };
+    print(v.x);
+    v.z = v.x + v.y;
+    print(v.z); // 30
+    free(v, 24);
+    return 0;
+}
+```
+
+### 3. DWARF Debug Information (`gdb` / `lldb`)
+The compiler generates native DWARF `.file` and `.loc` debug directives mapping machine instructions directly back to `.ix` source lines:
+```bash
+./rubixc -g examples/01_hello.ix -o hello_dbg
+gdb ./hello_dbg
+# (gdb) break 3
+# (gdb) run
+# Breakpoint 1, main () at examples/01_hello.ix:3
+```
+
+### 4. Cross-OS Compilation (Windows PE64)
+Produce real 64-bit Windows console executables directly on Linux:
+```bash
+./rubixc -t windows examples/01_hello.ix -o hello.exe
+file hello.exe
+# hello.exe: PE32+ executable for MS Windows 5.02 (console), x86-64
+```
+
+### 5. Separate Compilation & Static Object Linking
+Compile individual `.ix` files into ELF relocatable objects (`.o`) and link multiple units:
+```bash
+./rubixc -c module1.ix -o module1.o
+./rubixc -c module2.ix -o module2.o
+./rubixc module1.o module2.o -o my_app
+```
 
 ---
 
@@ -267,26 +348,28 @@ Rubix Compiler Error: Expected expression
 ```bash
 make clean && make
 ```
-This produces the standalone `rubix_compiler` executable (42 KB).
+Produces `rubix_compiler` and `lib/runtime.o`.
 
 ### 2. Compile and Run a Program
 Use the `./rubixc` compiler driver:
 
 ```bash
 # Compile and immediately run
-./rubixc -r examples/11_for_loops.ix
-./rubixc -r examples/12_stdlib.ix
+./rubixc -r examples/15_floats.ix
+./rubixc -r examples/16_structs.ix
 
-# Compile to a native binary
-./rubixc examples/01_hello.ix hello_bin
-./hello_bin
+# Compile for Windows PE64
+./rubixc -t windows examples/01_hello.ix -o hello.exe
+
+# Compile with DWARF debug info
+./rubixc -g examples/01_hello.ix -o hello_dbg
 ```
 
 ### 3. Run the Entire Test Suite
 ```bash
 ./test.sh
 ```
-Executes all 14 test suites, confirming compiler build, control flow, functions, dynamic arrays, modules, loops, standard library, and multi-thousand-iteration stress tests.
+Executes all **17** test suites verifying the compiler build, arithmetic, control flow, functions, prime algorithms, dynamic arrays, modules, loops, standard library, floats, structs, Windows cross-linking, and separate compilation.
 
 ---
 

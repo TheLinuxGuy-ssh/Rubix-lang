@@ -175,6 +175,7 @@ parse_program:
     mov QWORD PTR [rodata_len], 0
     mov QWORD PTR [str_label_count], 0
     mov QWORD PTR [main_defined], 0
+    mov QWORD PTR [last_loc_line], 0
 
     # Initialize default code emission to out_buffer
     call emit_to_out
@@ -184,6 +185,18 @@ parse_program:
 
     # Emit assembly header
     lea rdi, [str_header]
+    call emit_cstr
+
+    # Emit DWARF .file 1 "<path>"
+    lea rdi, [str_file_prefix]
+    call emit_cstr
+    mov rdi, [input_file_path]
+    cmp rdi, 0
+    jne .L_have_dbg_file
+    lea rdi, [str_default_dbg_file]
+.L_have_dbg_file:
+    call emit_cstr
+    lea rdi, [str_file_suffix]
     call emit_cstr
 
 .L_prog_loop:
@@ -199,9 +212,16 @@ parse_program:
 
 .L_prog_chk_fn:
     cmp rbx, TOK_FN
-    jne .L_prog_not_fn
+    jne .L_prog_chk_struct
 
     call parse_fn
+    jmp .L_prog_loop
+
+.L_prog_chk_struct:
+    cmp rbx, TOK_STRUCT
+    jne .L_prog_not_fn
+
+    call parse_struct_decl
     jmp .L_prog_loop
 
 .L_prog_not_fn:
@@ -549,6 +569,31 @@ parse_fn:
     mov rsi, [rax + 24]
     call compiler_panic
 
+# emit_loc_directive()
+emit_loc_directive:
+    push rbp
+    mov rbp, rsp
+    push rbx
+    call get_cur_tok_ptr
+    mov rbx, [rax + 24]     # token line
+    cmp rbx, 0
+    jle .L_eld_done
+    cmp rbx, [last_loc_line]
+    je .L_eld_done
+    mov [last_loc_line], rbx
+
+    lea rdi, [str_loc_prefix]
+    call emit_cstr
+    mov rax, rbx
+    call emit_int
+    lea rdi, [str_loc_suffix]
+    call emit_cstr
+.L_eld_done:
+    pop rbx
+    mov rsp, rbp
+    pop rbp
+    ret
+
 # --- Statements ---
 # parse_statement()
 parse_statement:
@@ -559,6 +604,8 @@ parse_statement:
     push r13
     push r14
     push r15
+
+    call emit_loc_directive
 
     call get_cur_tok_ptr
     mov rbx, [rax + 0]      # token type
@@ -1274,6 +1321,8 @@ parse_statement:
     je .L_stmt_assign_var
     cmp rax, TOK_LBRACKET
     je .L_stmt_assign_array
+    cmp rax, TOK_DOT
+    je .L_stmt_assign_field
     jmp .L_stmt_expr_stmt
 
 .L_stmt_assign_array:
@@ -1320,6 +1369,74 @@ parse_statement:
 
     lea rdi, [str_store_array_elem]
     call emit_cstr
+
+    # optional semicolon
+    call get_cur_tok_ptr
+    mov rbx, [rax + 0]
+    cmp rbx, TOK_SEMICOLON
+    jne .L_stmt_done
+    call advance_token
+    jmp .L_stmt_done
+
+.L_stmt_assign_field:
+    # Field assignment: <id>.<field> = <expr>;
+    call get_cur_tok_ptr
+    mov r12, [rax + 8]      # id_ptr
+    mov r13, [rax + 16]     # id_len
+
+    mov rdi, r12
+    mov rsi, r13
+    call symtab_find
+    cmp rax, -1
+    je .L_stmt_err_undef_var
+    push rax                # save variable stack offset
+
+    call advance_token      # skip variable ident
+    call advance_token      # skip '.'
+
+    # Get field ident name before advancing
+    call get_cur_tok_ptr
+    push QWORD PTR [rax + 8]    # field name ptr
+    push QWORD PTR [rax + 16]   # field name len
+    mov rdi, TOK_IDENT
+    lea rsi, [msg_err_expected_field_name]
+    call expect_tok
+
+    pop rdx                     # field name len
+    pop rsi                     # field name ptr
+    mov rdi, 0                  # search across all structs
+    call struct_get_field_offset
+    cmp rax, -1
+    je .L_stmt_err_undef_field
+    mov r15, rax            # field offset
+
+    # Expect '='
+    mov rdi, TOK_ASSIGN
+    lea rsi, [msg_err_expected_assign]
+    call expect_tok
+
+    call parse_expr         # evaluate RHS into rax
+
+    pop r14                 # restore variable stack offset
+
+    # Emit:
+    # mov rbx, QWORD PTR [rbp - {var_offset}]
+    # mov QWORD PTR [rbx + {field_offset}], rax
+    push rax
+    lea rdi, [str_mov_rbx_rbp]
+    call emit_cstr
+    mov rax, r14
+    call emit_int
+    lea rdi, [str_close_bracket_nl]
+    call emit_cstr
+
+    lea rdi, [str_mov_rbx_field]
+    call emit_cstr
+    mov rax, r15
+    call emit_int
+    lea rdi, [str_close_bracket_comma_rax]
+    call emit_cstr
+    pop rax
 
     # optional semicolon
     call get_cur_tok_ptr
@@ -1377,6 +1494,12 @@ parse_statement:
 
 .L_stmt_err_undef_var:
     lea rdi, [msg_err_undef_var]
+    call get_cur_tok_ptr
+    mov rsi, [rax + 24]
+    call compiler_panic
+
+.L_stmt_err_undef_field:
+    lea rdi, [msg_err_undef_field]
     call get_cur_tok_ptr
     mov rsi, [rax + 24]
     call compiler_panic
@@ -1758,10 +1881,53 @@ parse_primary:
     jmp .L_prim_done
 
 .L_prim_not_int:
+    # Float literal
+    cmp rbx, TOK_FLOAT
+    jne .L_prim_not_float
+
+    call get_cur_tok_ptr
+    mov rdi, [rax + 8]      # str_ptr
+    mov rsi, [rax + 16]     # str_len
+    call rodata_add_float   # returns label_id in rax
+    push rax
+
+    lea rdi, [str_mov_rax_lc_qword]
+    call emit_cstr
+    pop rax
+    call emit_int
+    lea rdi, [str_close_bracket_nl]
+    call emit_cstr
+    call advance_token
+    jmp .L_prim_done
+
+.L_prim_not_float:
     # 2. Unary minus
     cmp rbx, TOK_MINUS
     jne .L_prim_not_neg
 
+    # Lookahead: is next token TOK_FLOAT?
+    mov rdi, 1
+    call peek_tok_type
+    cmp rax, TOK_FLOAT
+    jne .L_prim_unary_int_neg
+
+    call advance_token      # skip '-'
+    call get_cur_tok_ptr
+    mov rdi, [rax + 8]      # str_ptr
+    mov rsi, [rax + 16]     # str_len
+    call rodata_add_neg_float
+    push rax
+
+    lea rdi, [str_mov_rax_lc_qword]
+    call emit_cstr
+    pop rax
+    call emit_int
+    lea rdi, [str_close_bracket_nl]
+    call emit_cstr
+    call advance_token      # skip float token
+    jmp .L_prim_done
+
+.L_prim_unary_int_neg:
     call advance_token
     call parse_primary
     lea rdi, [str_neg_rax]
@@ -1904,7 +2070,7 @@ parse_primary:
     jmp .L_prim_done
 
 .L_prim_not_str:
-    # 8. Identifier (Variable, Array Indexing, or Function Call)
+    # 8. Identifier (Variable, Array Indexing, Struct Literal, Struct Member, or Function Call)
     cmp rbx, TOK_IDENT
     jne .L_prim_err
 
@@ -1918,6 +2084,15 @@ parse_primary:
     cmp rax, TOK_LBRACKET
     je .L_prim_array_idx
 
+    # Lookahead: is next token '{'? (Struct literal)
+    cmp rax, TOK_LBRACE
+    je .L_prim_chk_struct_lit
+
+    # Lookahead: is next token '.'? (Field access)
+    cmp rax, TOK_DOT
+    je .L_prim_field_access
+
+.L_prim_var_lookup:
     # It's a variable lookup
     call get_cur_tok_ptr
     mov rdi, [rax + 8]      # name_ptr
@@ -1936,6 +2111,163 @@ parse_primary:
     call emit_cstr
     call advance_token
     jmp .L_prim_done
+
+.L_prim_chk_struct_lit:
+    call get_cur_tok_ptr
+    mov rdi, [rax + 8]      # ident name
+    mov rsi, [rax + 16]     # ident len
+    call struct_find
+    cmp rax, 0
+    je .L_prim_var_lookup   # not a struct, fall back to variable lookup
+    mov r12, rax            # struct_entry_ptr
+
+    # Calculate size: field_count * 8
+    mov r13, [r12 + 40]     # field_count
+    mov rax, r13
+    shl rax, 3              # field_count * 8
+    test rax, rax
+    jnz .L_psl_have_sz
+    mov rax, 8              # minimum 8 bytes
+.L_psl_have_sz:
+    push rax
+
+    # emit "    mov rdi, {size}\n    call __rubix_alloc\n    push rax\n"
+    lea rdi, [str_mov_rdi_imm]
+    call emit_cstr
+    pop rax
+    call emit_int
+    call emit_nl
+    lea rdi, [str_call_alloc_push]
+    call emit_cstr
+
+    call advance_token      # skip struct name
+    call advance_token      # skip '{'
+
+    xor r14, r14            # field index
+.L_psl_init_loop:
+    call get_cur_tok_ptr
+    mov rax, [rax + 0]
+    cmp rax, TOK_RBRACE
+    je .L_psl_init_done
+    cmp rax, TOK_EOF
+    je .L_psl_err_eof
+
+    # Check if field name with colon: "field: expr"
+    mov rdi, 1
+    call peek_tok_type
+    cmp rax, TOK_COLON
+    jne .L_psl_positional
+
+    # Named field: look up offset in r12
+    call get_cur_tok_ptr
+    mov rdi, r12
+    mov rsi, [rax + 8]
+    mov rdx, [rax + 16]
+    call struct_get_field_offset
+    mov r15, rax            # offset
+    call advance_token      # skip field name
+    call advance_token      # skip ':'
+    jmp .L_psl_parse_field_val
+
+.L_psl_positional:
+    mov r15, r14
+    shl r15, 3              # r14 * 8
+
+.L_psl_parse_field_val:
+    push r14
+    push r15
+    call parse_expr         # value in rax
+    pop r15
+    pop r14
+
+    # emit "    mov rbx, [rsp]\n    mov QWORD PTR [rbx + {offset}], rax\n"
+    push rax
+    lea rdi, [str_mov_rbx_rsp]
+    call emit_cstr
+    lea rdi, [str_mov_rbx_field]
+    call emit_cstr
+    mov rax, r15
+    call emit_int
+    lea rdi, [str_close_bracket_comma_rax]
+    call emit_cstr
+    pop rax
+
+    inc r14
+
+    call get_cur_tok_ptr
+    mov rax, [rax + 0]
+    cmp rax, TOK_COMMA
+    jne .L_psl_init_loop
+    call advance_token
+    jmp .L_psl_init_loop
+
+.L_psl_init_done:
+    call advance_token      # skip '}'
+    # emit "    pop rax\n"
+    lea rdi, [str_pop_rax]
+    call emit_cstr
+    jmp .L_prim_done
+
+.L_psl_err_eof:
+    lea rdi, [msg_err_unexpected_eof]
+    call get_cur_tok_ptr
+    mov rsi, [rax + 24]
+    call compiler_panic
+
+.L_prim_field_access:
+    # Field read: <var>.<field>
+    call get_cur_tok_ptr
+    mov rdi, [rax + 8]      # var name ptr
+    mov rsi, [rax + 16]     # var name len
+    call symtab_find
+    cmp rax, -1
+    je .L_prim_err_undef
+
+    # emit "    mov rax, QWORD PTR [rbp - {offset}]\n"
+    push rax
+    lea rdi, [str_mov_rax_rbp]
+    call emit_cstr
+    pop rax
+    call emit_int
+    lea rdi, [str_close_bracket_nl]
+    call emit_cstr
+
+    call advance_token      # skip variable ident
+
+.L_prim_fa_loop:
+    call get_cur_tok_ptr
+    mov rax, [rax + 0]
+    cmp rax, TOK_DOT
+    jne .L_prim_done
+    call advance_token      # skip '.'
+
+    # Get field ident name before advancing
+    call get_cur_tok_ptr
+    push QWORD PTR [rax + 8]    # field name ptr
+    push QWORD PTR [rax + 16]   # field name len
+    mov rdi, TOK_IDENT
+    lea rsi, [msg_err_expected_field_name]
+    call expect_tok
+
+    pop rdx                     # field name len
+    pop rsi                     # field name ptr
+    mov rdi, 0                  # search across all structs
+    call struct_get_field_offset
+    cmp rax, -1
+    je .L_stmt_err_undef_field
+    mov r15, rax            # offset
+
+    # emit "    mov rax, QWORD PTR [rax + {offset}]\n"
+    push rax
+    lea rdi, [str_mov_rax_rax_field]
+    call emit_cstr
+    mov rax, r15
+    call emit_int
+    lea rdi, [str_close_bracket_nl]
+    call emit_cstr
+    pop rax
+
+    jmp .L_prim_fa_loop
 
 .L_prim_array_idx:
     # Array indexing: <id>[<expr>]
@@ -1989,6 +2321,8 @@ parse_primary:
     je .L_prim_user_call
 
     # Check built-in: "print" (len 5)
+    cmp r13, 5
+    jne .L_prim_check_print_str
     mov rdi, r12
     mov rsi, r13
     lea rdx, [str_fn_print]
@@ -2009,6 +2343,8 @@ parse_primary:
 
 .L_prim_check_print_str:
     # Check built-in: "print_str" (len 9)
+    cmp r13, 9
+    jne .L_prim_check_print_char
     mov rdi, r12
     mov rsi, r13
     lea rdx, [str_fn_print_str]
@@ -2067,13 +2403,15 @@ parse_primary:
 
 .L_prim_check_print_char:
     # Check built-in: "print_char" (len 10)
+    cmp r13, 10
+    jne .L_prim_check_print_float
     mov rdi, r12
     mov rsi, r13
     lea rdx, [str_fn_print_char]
     mov rcx, 10
     call str_cmp_n
     cmp rax, 0
-    jne .L_prim_check_alloc
+    jne .L_prim_check_print_float
 
     call parse_expr
     mov rdi, TOK_RPAREN
@@ -2084,8 +2422,31 @@ parse_primary:
     call emit_cstr
     jmp .L_prim_done
 
+.L_prim_check_print_float:
+    # Check built-in: "print_float" (len 11)
+    cmp r13, 11
+    jne .L_prim_check_alloc
+    mov rdi, r12
+    mov rsi, r13
+    lea rdx, [str_fn_print_float]
+    mov rcx, 11
+    call str_cmp_n
+    cmp rax, 0
+    jne .L_prim_check_alloc
+
+    call parse_expr
+    mov rdi, TOK_RPAREN
+    lea rsi, [msg_err_expected_rparen]
+    call expect_tok
+
+    lea rdi, [str_call_print_float]
+    call emit_cstr
+    jmp .L_prim_done
+
 .L_prim_check_alloc:
     # Check built-in: "alloc" (len 5)
+    cmp r13, 5
+    jne .L_prim_check_free
     mov rdi, r12
     mov rsi, r13
     lea rdx, [str_fn_alloc]
@@ -2105,6 +2466,8 @@ parse_primary:
 
 .L_prim_check_free:
     # Check built-in: "free" (len 4)
+    cmp r13, 4
+    jne .L_prim_user_call
     mov rdi, r12
     mov rsi, r13
     lea rdx, [str_fn_free]
@@ -2435,3 +2798,21 @@ msg_err_redef_main:          .string "Redefinition of main"
 msg_err_expected_rbracket:   .string "Expected ']'"
 msg_err_expected_comma:      .string "Expected ','"
 msg_err_expected_semi:       .string "Expected ';'"
+msg_err_undef_field:         .string "Undefined struct field"
+
+str_file_prefix:        .string ".file 1 \""
+str_file_suffix:        .string "\"\n"
+str_default_dbg_file:   .string "rubix_input.ix"
+str_loc_prefix:         .string "    .loc 1 "
+str_loc_suffix:         .string " 0\n"
+
+str_mov_rax_lc_qword:   .string "    mov rax, QWORD PTR [.LC"
+str_mov_rbx_field:      .string "    mov QWORD PTR [rbx + "
+str_close_bracket_comma_rax: .string "], rax\n"
+str_call_alloc_push:    .string "    call __rubix_alloc\n    push rax\n"
+str_mov_rbx_rsp:        .string "    mov rbx, [rsp]\n"
+str_mov_rax_rax_field:  .string "    mov rax, QWORD PTR [rax + "
+
+str_fn_print_float:     .string "print_float"
+str_call_print_float:   .string "    mov rdi, rax\n    movq xmm0, rax\n    call __rubix_print_float\n    xor rax, rax\n"
+str_pop_rax:            .string "    pop rax\n"
