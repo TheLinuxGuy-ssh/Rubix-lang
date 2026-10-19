@@ -20,9 +20,9 @@
 
 - **Pure Assembly Compiler**: The compiler itself is written completely in GNU x86-64 assembly (`as` + `ld`). No external dependencies or runtime libraries are needed.
 - **Tiny & Instant**: The compiler binary is only **~42 KB**, with sub-millisecond compilation times.
-- **Zero OS Barrier (Universal Multi-OS Execution)**:
+- **Zero OS Barrier (Universal Multi-OS Architecture)**:
   - Compiles `.ix` code into standalone native executables equipped with an adaptive runtime.
-  - **No WASM, No Virtual Machine**: Executes directly on bare silicon across **Linux, Windows, and macOS**.
+  - **No WASM, No Virtual Machine**: Architected to execute directly on bare silicon across **Linux, Windows, and macOS** (verified on Linux x86-64).
   - **Dynamic Host OS Detection**: Automatically determines the host OS at binary entry (`rubix_host_os`).
   - **In-Memory Windows Resolver**: Walks the Windows PEB (`gs:[0x60]`) in pure assembly to resolve `kernel32.dll` API exports without external import tables.
 - **Rich Language Features**:
@@ -237,6 +237,9 @@ Rubix binaries break the operating system barrier by incorporating an adaptive n
   - `__rubix_sys_munmap`: Linux `sys_munmap` / Windows `VirtualFree` / macOS `0x2000049`
   - `__rubix_sys_exit`: Linux `sys_exit` / Windows `ExitProcess` / macOS `0x2000001`
 - **Windows PEB / kernel32 Dynamic Resolver**: On Windows x64, dynamically walks the Process Environment Block (`gs:[0x60]`), locates `kernel32.dll`, and resolves API exports without relying on external DLL import tables.
+
+> [!NOTE]
+> **Platform & Verification Status**: The multi-OS entry vectors and Windows/macOS dispatch routines are structurally baked into the emitted assembly runtime. The compiler build toolchain (`as` + `ld`) and the 14-test verification suite currently run natively on **Linux x86-64**. The architecture is designed for multi-OS execution, with Linux currently serving as the fully exercised and verified reference host.
 
 ---
 
