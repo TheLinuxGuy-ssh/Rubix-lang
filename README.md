@@ -267,15 +267,22 @@ Rubix binaries break the operating system barrier by incorporating an adaptive n
 
 ## 💎 Advanced Systems Capabilities
 
-### 1. Floating-Point Numbers (`f64` / Double Precision)
-Full IEEE-754 64-bit double-precision floating-point literal scanning, SSE/XMM instructions, and high-precision formatting:
+### 1. Floating-Point Numbers (`f64` / Double Precision) & Type System
+Full IEEE-754 64-bit double-precision support with type-aware symbol table resolution, native SSE2 machine code emission (`addsd`, `subsd`, `mulsd`, `divsd`), and polymorphic `print()`:
 ```rubix
-let pi = 3.141592;
+let pi: float = 3.141592;
 let rad = 2.5;
-let area = float_mul(pi, float_mul(rad, rad));
-print_float(area); // 19.634950
+
+// Native SSE2 arithmetic (+, -, *, /) and mixed int-float operations
+let area = pi * rad * rad;
+print(area); // 19.634950 (automatically dispatches to float formatting)
+
+// Typed function parameters and return types
+fn hypot(a: float, b: float): float {
+    return a * a + b * b;
+}
 ```
-Built-in math routines: `float_add`, `float_sub`, `float_mul`, `float_div`, `float_to_int`, `int_to_float`, and `print_float`.
+Built-in math routines (`float_add`, `float_sub`, `float_mul`, `float_div`, `float_to_int`, `int_to_float`, `print_float`) remain fully available for backwards compatibility.
 
 ### 2. Struct Declarations & Dynamic Instances
 User-defined compound data structures with compile-time offset layout, heap instantiation, and member access/mutation:
@@ -357,6 +364,7 @@ Use the `./rubixc` compiler driver:
 # Compile and immediately run
 ./rubixc -r examples/15_floats.ix
 ./rubixc -r examples/16_structs.ix
+./rubixc -r examples/17_native_floats.ix
 
 # Compile for Windows PE64
 ./rubixc -t windows examples/01_hello.ix -o hello.exe
@@ -369,7 +377,7 @@ Use the `./rubixc` compiler driver:
 ```bash
 ./test.sh
 ```
-Executes all **17** test suites verifying the compiler build, arithmetic, control flow, functions, prime algorithms, dynamic arrays, modules, loops, standard library, floats, structs, Windows cross-linking, and separate compilation.
+Executes all **18** test suites verifying the compiler build, arithmetic, control flow, functions, prime algorithms, dynamic arrays, modules, loops, standard library, floats, structs, native float SSE2 operators, Windows cross-linking, and separate compilation.
 
 ---
 
