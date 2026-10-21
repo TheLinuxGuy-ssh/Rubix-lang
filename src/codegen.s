@@ -377,6 +377,12 @@ str_comma_space:      .string ", "
 str_zero_nl:          .string "0\n"
 str_sec_rodata:       .string "\n.section .rodata\n"
 
+str_fcmp:         .string "    movq xmm0, rax\n    movq xmm1, rbx\n    ucomisd xmm0, xmm1\n    jp .L_fcmp_unordered\n    jne .L_fcmp_not_equal\n    mov rax, 1\n    jmp .L_fcmp_done\n.L_fcmp_not_equal:\n    xor rax, rax\n.L_fcmp_done:\n    movq rax, xmm0\n"
+str_fsete:        .string "    mov rax, 1\n"
+str_fsetne:       .string "    mov rax, 0\n"
+str_int_to_float_rax: .string "    cvtsi2sd xmm0, rax\n"
+str_float_to_int_rax: .string "    cvttsd2si rax, xmm0\n"
+
 msg_err_emit_overflow:   .string "Output assembly buffer overflow"
 msg_err_rodata_overflow: .string "Rodata buffer overflow"
 

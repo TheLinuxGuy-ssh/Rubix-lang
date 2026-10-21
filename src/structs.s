@@ -267,6 +267,9 @@ parse_struct_decl:
     cmp rax, TOK_IDENT
     jne .L_psd_err_expected_field
 
+    cmp r15, MAX_STRUCT_FIELDS
+    jge .L_psd_field_overflow
+
     call get_cur_tok_ptr
     mov r12, [rax + 8]      # field name ptr
     mov r13, [rax + 16]     # field name len
@@ -391,7 +394,14 @@ collect_structs:
     mov rsi, [rax + 24]
     call compiler_panic
 
+.L_psd_field_overflow:
+    lea rdi, [msg_err_struct_field_overflow]
+    call get_cur_tok_ptr
+    mov rsi, [rax + 24]
+    call compiler_panic
+
 .data
 msg_err_expected_struct_name: .string "Expected struct name after 'struct'"
 msg_err_expected_field_name:  .string "Expected field identifier in struct declaration"
 msg_err_struct_overflow:      .string "Maximum number of structs exceeded"
+msg_err_struct_field_overflow: .string "Maximum number of fields per struct exceeded (max 16)"

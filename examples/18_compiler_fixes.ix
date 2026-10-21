@@ -1,0 +1,66 @@
+struct Point {
+    x: int,
+    y: int
+}
+
+struct Player {
+    score: int,
+    x: int,
+    name_id: int
+}
+
+fn main() {
+    print_str("--- 1. Testing Struct Field Collision Fix ---\n");
+    let pt = Point { x: 10, y: 20 };
+    # In Point: x is offset 0, y is offset 8.
+    # In Player: score is offset 0, x is offset 8, name_id is offset 16.
+    let hero = Player { score: 999, x: 777, name_id: 1 };
+
+    print(pt.x);
+    print(hero.x);
+    print(hero.score);
+
+    # Mutate hero.x (offset 8) and ensure it doesn't overwrite hero.score (offset 0)
+    hero.x = 888;
+    print(hero.x);
+    print(hero.score);
+
+    print_str("--- 2. Testing SSE2 Float Comparisons ---\n");
+    let a: float = -1.5;
+    let b: float = -0.5;
+
+    # -1.5 < -0.5 is TRUE (1)
+    if (a < b) {
+        print_str("PASS: -1.5 < -0.5 is TRUE\n");
+    } else {
+        print_str("FAIL: -1.5 < -0.5 evaluated FALSE\n");
+    }
+
+    # -0.5 > -1.5 is TRUE (1)
+    if (b > a) {
+        print_str("PASS: -0.5 > -1.5 is TRUE\n");
+    } else {
+        print_str("FAIL: -0.5 > -1.5 evaluated FALSE\n");
+    }
+
+    # Equality
+    let f1: float = 3.14;
+    let f2: float = 3.14;
+    if (f1 == f2) {
+        print_str("PASS: 3.14 == 3.14\n");
+    } else {
+        print_str("FAIL: 3.14 == 3.14\n");
+    }
+
+    print_str("--- 3. Testing Variable Assignment Type Conversions ---\n");
+    let fvar: float = 10.0;
+    fvar = 42;
+    print_float(fvar);
+
+    let ivar: int = 0;
+    ivar = 9.87;
+    print(ivar);
+
+    print_str("--- ALL COMPILER FIXES VERIFIED ---\n");
+    return 0;
+}

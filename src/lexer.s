@@ -220,6 +220,7 @@ lex_all:
     mov r14, r12            # start of number
     xor rax, rax            # accumulator
     mov rbx, 10
+    xor r15, r15            # dot_count = 0
 .L_lex_num_loop:
     movzx rcx, BYTE PTR [r12]
     cmp rcx, '0'
@@ -243,14 +244,24 @@ lex_all:
     jg .L_lex_num_done
     # It is a float!
     inc r12                 # skip '.'
+    inc r15                 # dot_count++
 .L_lex_float_frac_loop:
     movzx rcx, BYTE PTR [r12]
     cmp rcx, '0'
-    jl .L_lex_float_done
+    jl .L_lex_float_chk_multi_dot
     cmp rcx, '9'
-    jg .L_lex_float_done
+    jg .L_lex_float_chk_multi_dot
     inc r12
     jmp .L_lex_float_frac_loop
+
+.L_lex_float_chk_multi_dot:
+    cmp rcx, '.'
+    jne .L_lex_float_done
+    # Encountered another '.' in float literal
+    inc r15                 # dot_count++
+    lea rdi, [msg_err_multi_dot_float]
+    mov rsi, [cur_line]
+    call compiler_panic
 
 .L_lex_float_done:
     mov rdi, TOK_FLOAT
@@ -737,3 +748,4 @@ msg_err_tok_overflow:     .string "Too many tokens (buffer overflow)"
 msg_err_unknown_char:     .string "Unrecognized character in source"
 msg_err_unterminated_str: .string "Unterminated string literal"
 msg_err_unclosed_char:    .string "Unclosed character literal"
+msg_err_multi_dot_float:  .string "Invalid floating-point literal: multiple decimal points"

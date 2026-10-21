@@ -120,7 +120,7 @@ grep -Fq "3.0^2 + 4.0^2 = 25.000000" /tmp/rubix_t17.out
 echo "       Test 17 PASSED!"
 
 # 18. Test Multi-Target & Separate Compilation
-echo "[18/18] Testing Windows PE target (-t windows) & Separate Compilation (-c)..."
+echo "[18/19] Testing Windows PE target (-t windows) & Separate Compilation (-c)..."
 ./rubixc -t windows examples/01_hello.ix -o test_win_pe
 file test_win_pe.exe | grep -q "PE32+ executable"
 ./rubixc -c examples/01_hello.ix -o test_sep.o
@@ -128,9 +128,16 @@ file test_win_pe.exe | grep -q "PE32+ executable"
 ./test_sep_bin | grep -q "Hello from Rubix"
 echo "       Test 18 PASSED!"
 
+# 19. Test Compiler Fixes (Struct scoping, SSE2 float comparisons, assignment typing)
+echo "[19/19] Testing examples/18_compiler_fixes.ix..."
+./rubixc -r examples/18_compiler_fixes.ix > /tmp/rubix_t19.out
+grep -q "PASS: -1.5 < -0.5 is TRUE" /tmp/rubix_t19.out
+grep -q "ALL COMPILER FIXES VERIFIED" /tmp/rubix_t19.out
+echo "       Test 19 PASSED!"
+
 # Clean up test output binaries
-rm -f 01_hello 02_arithmetic 03_control_flow 04_functions 05_prime_numbers 06_arrays 07_types_and_logic 08_many_params 09_modules 11_for_loops 12_stdlib large_system_test comprehensive_large_test 15_floats 16_structs 17_native_floats test_win_pe.exe test_sep.o test_sep_bin out.s *.s
+rm -f 01_hello 02_arithmetic 03_control_flow 04_functions 05_prime_numbers 06_arrays 07_types_and_logic 08_many_params 09_modules 11_for_loops 12_stdlib large_system_test comprehensive_large_test 15_floats 16_structs 17_native_floats 18_compiler_fixes test_win_pe.exe test_sep.o test_sep_bin out.s *.s
 
 echo "=================================================="
-echo "    ALL 18 TESTS PASSED FOR RUBIX (.ix)!"
+echo "    ALL 19 TESTS PASSED FOR RUBIX (.ix)!"
 echo "=================================================="

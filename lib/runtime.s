@@ -512,13 +512,95 @@ __rubix_print_float:
     pop rbp
     ret
 
-# --- Memory Allocation ---
+# --- Memory Allocation (Arena Sub-Allocator with OS Mmap Fallback) ---
 
 __rubix_alloc:
-    jmp __rubix_sys_mmap
+    push rbp
+    mov rbp, rsp
+    push rbx
+    push r12
+
+    mov r12, rdi            # requested size
+
+    # Align size to 16 bytes: (size + 15) & ~15
+    add r12, 15
+    and r12, -16
+    cmp r12, 0
+    jg .L_alloc_sz_ok
+    mov r12, 16
+.L_alloc_sz_ok:
+
+    # If requested size > 32KB (32768), do a direct mmap
+    cmp r12, 32768
+    jg .L_alloc_direct_mmap
+
+    # Small allocation: check current bump arena
+    mov rax, [rubix_arena_ptr]
+    test rax, rax
+    jz .L_alloc_new_arena_chunk
+
+    mov rcx, rax
+    add rcx, r12            # potential new arena ptr
+    cmp rcx, [rubix_arena_end]
+    jg .L_alloc_new_arena_chunk
+
+    # Fits in current arena block
+    mov [rubix_arena_ptr], rcx
+    # rax already has the allocated base pointer
+    pop r12
+    pop rbx
+    mov rsp, rbp
+    pop rbp
+    ret
+
+.L_alloc_new_arena_chunk:
+    # Request a 64KB block (65536 bytes) from OS
+    mov rdi, 65536
+    call __rubix_sys_mmap
+    cmp rax, -1
+    je .L_alloc_failed
+    test rax, rax
+    jz .L_alloc_failed
+
+    # New block base is in rax
+    mov rbx, rax
+    add rax, r12            # current arena ptr = base + requested size
+    mov [rubix_arena_ptr], rax
+    add rbx, 65536          # arena end = base + 65536
+    mov [rubix_arena_end], rbx
+
+    sub rax, r12            # return base pointer
+    pop r12
+    pop rbx
+    mov rsp, rbp
+    pop rbp
+    ret
+
+.L_alloc_direct_mmap:
+    mov rdi, r12
+    call __rubix_sys_mmap
+    pop r12
+    pop rbx
+    mov rsp, rbp
+    pop rbp
+    ret
+
+.L_alloc_failed:
+    xor rax, rax
+    pop r12
+    pop rbx
+    mov rsp, rbp
+    pop rbp
+    ret
 
 __rubix_free:
+    # rdi: ptr, rsi: size
+    cmp rsi, 32768
+    jle .L_free_done        # Arena sub-allocations are retained in the block
     jmp __rubix_sys_munmap
+.L_free_done:
+    xor rax, rax
+    ret
 
 # --- Standard Library: File I/O ---
 
@@ -786,6 +868,10 @@ __rubix_overflow_error:
     mov rdi, 1
     jmp __rubix_sys_exit
 
+.L_fcmp_unordered:
+    xor rax, rax
+    ret
+
 .section .rodata
 .L_msg_div_zero:
     .string "Rubix Runtime Error: division by zero\n"
@@ -817,3 +903,5 @@ win_fn_ReadFile:      .quad 0
 win_fn_VirtualAlloc:  .quad 0
 win_fn_VirtualFree:   .quad 0
 win_fn_ExitProcess:   .quad 0
+rubix_arena_ptr:      .quad 0
+rubix_arena_end:      .quad 0

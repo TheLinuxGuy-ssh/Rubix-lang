@@ -433,6 +433,7 @@ parse_fn:
     mov [r9 + 0], rcx
     mov [r9 + 8], rdx
     mov QWORD PTR [r9 + 16], TYPE_INT  # default int
+    mov QWORD PTR [fn_params_extra_buf + r14*8], 0
 
     call advance_token
 
@@ -464,8 +465,19 @@ parse_fn:
     jmp .L_pfn_param_type_done
 .L_pfn_chk_bool:
     cmp rbx, TOK_BOOL_KW
-    jne .L_pfn_param_type_done
+    jne .L_pfn_chk_ident
     mov QWORD PTR [fn_params_buf + r8 + 16], TYPE_BOOL
+    jmp .L_pfn_param_type_done
+.L_pfn_chk_ident:
+    cmp rbx, TOK_IDENT
+    jne .L_pfn_param_type_done
+    mov rdi, [rax + 8]
+    mov rsi, [rax + 16]
+    call struct_find
+    test rax, rax
+    jz .L_pfn_param_type_done
+    mov QWORD PTR [fn_params_buf + r8 + 16], TYPE_STRUCT
+    mov [fn_params_extra_buf + r14*8], rax
 .L_pfn_param_type_done:
     call advance_token      # skip type
 
@@ -521,7 +533,7 @@ parse_fn:
     # Record param type in symtab
     mov rdi, r10
     pop rsi                 # param type_id
-    xor rdx, rdx
+    mov rdx, [fn_params_extra_buf + r15*8]
     call symtab_set_type
 
     # Param register or stack for params 7-12
@@ -885,8 +897,19 @@ parse_statement:
     jmp .L_let_trailing_done
 .L_let_trailing_bool:
     cmp rbx, TOK_BOOL_KW
-    jne .L_let_trailing_done
+    jne .L_let_trailing_ident
     mov r14, TYPE_BOOL
+    jmp .L_let_trailing_done
+.L_let_trailing_ident:
+    cmp rbx, TOK_IDENT
+    jne .L_let_trailing_done
+    mov rdi, [rax + 8]
+    mov rsi, [rax + 16]
+    call struct_find
+    test rax, rax
+    jz .L_let_trailing_done
+    mov r14, TYPE_STRUCT
+    mov [cur_var_struct_entry], rax
 .L_let_trailing_done:
     call advance_token      # skip type
 
@@ -903,6 +926,8 @@ parse_statement:
     cmp r14, TYPE_UNKNOWN
     jne .L_let_type_resolved
     mov r14, [cur_expr_type]
+    mov rax, [cur_expr_struct_entry]
+    mov [cur_var_struct_entry], rax
 .L_let_type_resolved:
 
     # allocate stack slot in symtab (with scope redeclaration guard)
@@ -914,8 +939,9 @@ parse_statement:
     # store type in symtab
     mov rdi, r15            # offset
     mov rsi, r14            # type_id
-    xor rdx, rdx            # extra
+    mov rdx, [cur_var_struct_entry] # extra (struct entry ptr)
     call symtab_set_type
+    mov QWORD PTR [cur_var_struct_entry], 0 # clear after storing
 
     # emit "    mov QWORD PTR [rbp - {offset}], rax\n"
     push r15
@@ -1563,10 +1589,11 @@ parse_statement:
 
     mov rdi, r12
     mov rsi, r13
-    call symtab_find
-    cmp rax, -1
+    call symtab_lookup
+    cmp rax, 0
     je .L_stmt_err_undef_var
-    push rax                # save variable stack offset
+    push QWORD PTR [rax + 72]   # save variable stack offset
+    push QWORD PTR [rax + 88]   # save struct_entry_ptr
 
     call advance_token      # skip variable ident
     call advance_token      # skip '.'
@@ -1581,11 +1608,12 @@ parse_statement:
 
     pop rdx                     # field name len
     pop rsi                     # field name ptr
-    mov rdi, 0                  # search across all structs
+    mov rdi, [rsp]              # peek struct_entry_ptr
     call struct_get_field_offset
     cmp rax, -1
     je .L_stmt_err_undef_field
     mov r15, rax            # field offset
+    add rsp, 8              # pop struct_entry_ptr
 
     # Expect '='
     mov rdi, TOK_ASSIGN
@@ -1631,18 +1659,46 @@ parse_statement:
     call advance_token      # skip id
     call advance_token      # skip '='
 
+    # find symbol entry to check type
+    mov rdi, r12
+    mov rsi, r13
+    call symtab_lookup
+    cmp rax, 0
+    je .L_stmt_err_undef_var
+    push QWORD PTR [rax + 72]   # save stack offset
+    push QWORD PTR [rax + 80]   # save var declared type_id
+
     # parse expression into rax
     call parse_expr
 
-    # find symbol offset
-    mov rdi, r12
-    mov rsi, r13
-    call symtab_find
-    cmp rax, -1
-    je .L_stmt_err_undef_var
+    pop r14                 # var declared type_id
+    pop r15                 # var stack offset
 
+    # Type check and auto-convert if necessary
+    cmp r14, TYPE_UNKNOWN
+    je .L_assign_emit
+    cmp r14, TYPE_FLOAT
+    jne .L_assign_chk_int
+
+    # Variable is float: if RHS is int, convert to float
+    cmp QWORD PTR [cur_expr_type], TYPE_INT
+    jne .L_assign_emit
+    lea rdi, [str_int_to_float_rax]
+    call emit_cstr
+    jmp .L_assign_emit
+
+.L_assign_chk_int:
+    cmp r14, TYPE_INT
+    jne .L_assign_emit
+    # Variable is int: if RHS is float, convert to int
+    cmp QWORD PTR [cur_expr_type], TYPE_FLOAT
+    jne .L_assign_emit
+    lea rdi, [str_float_to_int_rax]
+    call emit_cstr
+
+.L_assign_emit:
     # emit "    mov QWORD PTR [rbp - {offset}], rax\n"
-    push rax
+    push r15
     lea rdi, [str_mov_qword_rbp]
     call emit_cstr
     pop rax
@@ -1828,6 +1884,8 @@ parse_equality:
     mov rbp, rsp
     push rbx
     push r12
+    push r13
+    push r14
 
     call parse_relational
 
@@ -1842,14 +1900,22 @@ parse_equality:
 
 .L_eq_match:
     call advance_token
+    mov r13, [cur_expr_type]   # save LHS type
     lea rdi, [str_push_rax]
     call emit_cstr
 
     call parse_relational
 
+    mov r14, [cur_expr_type]   # RHS type
+    cmp r13, TYPE_FLOAT
+    je .L_eq_is_float
+    cmp r14, TYPE_FLOAT
+    je .L_eq_is_float
+
+    # Integer compare
     lea rdi, [str_pop_cmp]
     call emit_cstr
-
+    mov QWORD PTR [cur_expr_type], TYPE_BOOL
     cmp r12, TOK_EQ
     jne .L_eq_neq
     lea rdi, [str_sete]
@@ -1860,7 +1926,40 @@ parse_equality:
     call emit_cstr
     jmp .L_eq_loop
 
+.L_eq_is_float:
+    mov QWORD PTR [cur_expr_type], TYPE_BOOL
+    lea rdi, [str_pop_rbx]
+    call emit_cstr
+
+    cmp r13, TYPE_FLOAT
+    jne .L_eq_f_lhs_int
+    cmp r14, TYPE_FLOAT
+    jne .L_eq_f_rhs_int
+    lea rdi, [str_fcomi]
+    call emit_cstr
+    jmp .L_eq_f_emit_set
+.L_eq_f_lhs_int:
+    lea rdi, [str_fcmp_lhs_int]
+    call emit_cstr
+    jmp .L_eq_f_emit_set
+.L_eq_f_rhs_int:
+    lea rdi, [str_fcmp_rhs_int]
+    call emit_cstr
+
+.L_eq_f_emit_set:
+    cmp r12, TOK_EQ
+    jne .L_eq_f_neq
+    lea rdi, [str_fcomi_sete]
+    call emit_cstr
+    jmp .L_eq_loop
+.L_eq_f_neq:
+    lea rdi, [str_fcomi_setne]
+    call emit_cstr
+    jmp .L_eq_loop
+
 .L_eq_done:
+    pop r14
+    pop r13
     pop r12
     pop rbx
     mov rsp, rbp
@@ -1873,6 +1972,8 @@ parse_relational:
     mov rbp, rsp
     push rbx
     push r12
+    push r13
+    push r14
 
     call parse_additive
 
@@ -1891,14 +1992,22 @@ parse_relational:
 
 .L_rel_match:
     call advance_token
+    mov r13, [cur_expr_type]   # save LHS type
     lea rdi, [str_push_rax]
     call emit_cstr
 
     call parse_additive
 
+    mov r14, [cur_expr_type]   # RHS type
+    cmp r13, TYPE_FLOAT
+    je .L_rel_is_float
+    cmp r14, TYPE_FLOAT
+    je .L_rel_is_float
+
+    # Integer compare
     lea rdi, [str_pop_cmp]
     call emit_cstr
-
+    mov QWORD PTR [cur_expr_type], TYPE_BOOL
     cmp r12, TOK_LT
     je .L_rel_lt
     cmp r12, TOK_LTE
@@ -1923,7 +2032,54 @@ parse_relational:
     call emit_cstr
     jmp .L_rel_loop
 
+.L_rel_is_float:
+    mov QWORD PTR [cur_expr_type], TYPE_BOOL
+    lea rdi, [str_pop_rbx]
+    call emit_cstr
+
+    cmp r13, TYPE_FLOAT
+    jne .L_rel_f_lhs_int
+    cmp r14, TYPE_FLOAT
+    jne .L_rel_f_rhs_int
+    lea rdi, [str_fcomi]
+    call emit_cstr
+    jmp .L_rel_f_emit_set
+.L_rel_f_lhs_int:
+    lea rdi, [str_fcmp_lhs_int]
+    call emit_cstr
+    jmp .L_rel_f_emit_set
+.L_rel_f_rhs_int:
+    lea rdi, [str_fcmp_rhs_int]
+    call emit_cstr
+
+.L_rel_f_emit_set:
+    cmp r12, TOK_LT
+    je .L_rel_flt
+    cmp r12, TOK_LTE
+    je .L_rel_fle
+    cmp r12, TOK_GT
+    je .L_rel_fgt
+    # TOK_GTE
+    lea rdi, [str_fsetae]
+    call emit_cstr
+    jmp .L_rel_loop
+
+.L_rel_flt:
+    lea rdi, [str_fsetb]
+    call emit_cstr
+    jmp .L_rel_loop
+.L_rel_fle:
+    lea rdi, [str_fsetbe]
+    call emit_cstr
+    jmp .L_rel_loop
+.L_rel_fgt:
+    lea rdi, [str_fseta]
+    call emit_cstr
+    jmp .L_rel_loop
+
 .L_rel_done:
+    pop r14
+    pop r13
     pop r12
     pop rbx
     mov rsp, rbp
@@ -2507,6 +2663,8 @@ parse_primary:
 
 .L_psl_init_done:
     call advance_token      # skip '}'
+    mov QWORD PTR [cur_expr_type], TYPE_STRUCT
+    mov [cur_expr_struct_entry], r12
     # emit "    pop rax\n"
     lea rdi, [str_pop_rax]
     call emit_cstr
@@ -2523,9 +2681,12 @@ parse_primary:
     call get_cur_tok_ptr
     mov rdi, [rax + 8]      # var name ptr
     mov rsi, [rax + 16]     # var name len
-    call symtab_find
-    cmp rax, -1
+    call symtab_lookup
+    cmp rax, 0
     je .L_prim_err_undef
+
+    mov r14, [rax + 88]     # struct_entry_ptr
+    mov rax, [rax + 72]     # stack_offset
 
     # emit "    mov rax, QWORD PTR [rbp - {offset}]\n"
     push rax
@@ -2555,7 +2716,7 @@ parse_primary:
 
     pop rdx                     # field name len
     pop rsi                     # field name ptr
-    mov rdi, 0                  # search across all structs
+    mov rdi, r14                # search variable's struct (or 0 if untyped)
     call struct_get_field_offset
     cmp rax, -1
     je .L_stmt_err_undef_field
@@ -3053,6 +3214,16 @@ str_setl:             .string "    setl al\n    movzx rax, al\n"
 str_setle:            .string "    setle al\n    movzx rax, al\n"
 str_setg:             .string "    setg al\n    movzx rax, al\n"
 str_setge:            .string "    setge al\n    movzx rax, al\n"
+
+str_fcomi:           .string "    movq xmm0, rax\n    movq xmm1, rbx\n    ucomisd xmm0, xmm1\n"
+str_fcomi_sete:      .string "    sete al\n    setnp dl\n    and al, dl\n    movzx rax, al\n"
+str_fcomi_setne:     .string "    setne al\n    setp dl\n    or al, dl\n    movzx rax, al\n"
+str_fcmp_lhs_int:     .string "    cvtsi2sd xmm0, rax\n    movq xmm1, rbx\n    ucomisd xmm0, xmm1\n"
+str_fcmp_rhs_int:     .string "    movq xmm0, rax\n    cvtsi2sd xmm1, rbx\n    ucomisd xmm0, xmm1\n"
+str_fsetb:            .string "    setb al\n    movzx rax, al\n"
+str_fsetbe:           .string "    setbe al\n    movzx rax, al\n"
+str_fseta:            .string "    seta al\n    movzx rax, al\n"
+str_fsetae:           .string "    setae al\n    movzx rax, al\n"
 
 str_add_rax_rbx:      .string "    add rax, rbx\n    jo __rubix_overflow_error\n"
 str_sub_rax_rbx:      .string "    sub rax, rbx\n    jo __rubix_overflow_error\n"

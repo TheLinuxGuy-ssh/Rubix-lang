@@ -29,6 +29,9 @@ sym_count:        .quad 0
 cur_stack_offset: .quad 0
 fn_params_buf:    .skip (MAX_PARAMS * 24)
 cur_expr_type:    .quad 0
+cur_expr_struct_entry: .quad 0
+cur_var_struct_entry:  .quad 0
+fn_params_extra_buf:   .skip (MAX_PARAMS * 8)
 
 # Dynamic function frame sizing buffers
 .align 16
