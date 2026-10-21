@@ -3,6 +3,7 @@ rubix_compiler
 *.o
 *.s
 !src/*.s
+!lib/*.s
 *.out
 
 # Generated example binaries
