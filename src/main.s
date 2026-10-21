@@ -27,7 +27,8 @@ label_counter:    .quad 0
 symtab_buf:       .skip (MAX_SYMBOLS * SYMBOL_SIZE)
 sym_count:        .quad 0
 cur_stack_offset: .quad 0
-fn_params_buf:    .skip (MAX_PARAMS * 16)
+fn_params_buf:    .skip (MAX_PARAMS * 24)
+cur_expr_type:    .quad 0
 
 # Dynamic function frame sizing buffers
 .align 16
@@ -58,7 +59,7 @@ for_step_end:     .quad 0
 
 # User defined function tracking (up to 1,024 functions)
 .align 16
-user_fn_buf:      .skip (MAX_USER_FNS * 16)
+user_fn_buf:      .skip (MAX_USER_FNS * 24)
 user_fn_count:    .quad 0
 
 # Duplicate main tracking

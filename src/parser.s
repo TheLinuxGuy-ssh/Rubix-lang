@@ -86,17 +86,49 @@ collect_user_functions:
     cmp QWORD PTR [rax + 0], TOK_IDENT
     jne .L_cuf_next
 
+    # scan ahead from rbx for return type
+    mov r10, TYPE_INT       # default return type
+    mov r11, rbx            # scan index
+.L_cuf_scan_ret:
+    inc r11
+    cmp r11, [tok_count]
+    jge .L_cuf_add_fn
+    mov rax, r11
+    shl rax, 5
+    lea rax, [tokens_buf + rax]
+    mov r12, [rax + 0]
+    cmp r12, TOK_LBRACE
+    je .L_cuf_add_fn
+    cmp r12, TOK_COLON
+    jne .L_cuf_scan_ret
+    # Check if next token is TOK_FLOAT_KW
+    inc r11
+    cmp r11, [tok_count]
+    jge .L_cuf_add_fn
+    mov rax, r11
+    shl rax, 5
+    lea rax, [tokens_buf + rax]
+    cmp QWORD PTR [rax + 0], TOK_FLOAT_KW
+    jne .L_cuf_add_fn
+    mov r10, TYPE_FLOAT
+
+.L_cuf_add_fn:
     # add to user_fn_buf
     mov r8, [user_fn_count]
     cmp r8, MAX_USER_FNS
     jge .L_cuf_done
 
-    shl r8, 4               # index * 16
+    lea r8, [r8 + r8*2]
+    shl r8, 3               # index * 24
     lea r9, [user_fn_buf + r8]
+    mov rax, rbx
+    shl rax, 5
+    lea rax, [tokens_buf + rax]
     mov rcx, [rax + 8]      # name_ptr
     mov rdx, [rax + 16]     # name_len
     mov [r9 + 0], rcx
     mov [r9 + 8], rdx
+    mov [r9 + 16], r10     # ret_type
     inc QWORD PTR [user_fn_count]
 
 .L_cuf_next:
@@ -129,7 +161,8 @@ is_user_fn:
     jge .L_iuf_no
 
     mov rbx, r14
-    shl rbx, 4              # index * 16
+    lea rbx, [rbx + rbx*2]
+    shl rbx, 3              # index * 24
     lea rbx, [user_fn_buf + rbx]
 
     mov rdi, r12
@@ -155,6 +188,60 @@ is_user_fn:
 
 .L_iuf_no:
     xor rax, rax
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    mov rsp, rbp
+    pop rbp
+    ret
+
+# get_user_fn_ret_type(rdi: name_ptr, rsi: name_len) -> rax: type_id
+get_user_fn_ret_type:
+    push rbp
+    mov rbp, rsp
+    push rbx
+    push r12
+    push r13
+    push r14
+
+    mov r12, rdi            # name_ptr
+    mov r13, rsi            # name_len
+
+    xor r14, r14
+
+.L_gfr_loop:
+    cmp r14, [user_fn_count]
+    jge .L_gfr_default
+
+    mov rbx, r14
+    lea rbx, [rbx + rbx*2]
+    shl rbx, 3              # index * 24
+    lea rbx, [user_fn_buf + rbx]
+
+    mov rdi, r12
+    mov rsi, r13
+    mov rdx, [rbx + 0]      # entry name_ptr
+    mov rcx, [rbx + 8]      # entry name_len
+    call str_cmp_n
+    cmp rax, 0
+    je .L_gfr_found
+
+    inc r14
+    jmp .L_gfr_loop
+
+.L_gfr_found:
+    mov rax, [rbx + 16]     # ret_type
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    mov rsp, rbp
+    pop rbp
+    ret
+
+.L_gfr_default:
+    mov rax, TYPE_INT
     pop r14
     pop r13
     pop r12
@@ -340,11 +427,12 @@ parse_fn:
     mov rcx, [rax + 8]      # param name_ptr
     mov rdx, [rax + 16]     # param name_len
     mov r8, r14
-    shl r8, 4               # r14 * 16
-    lea r9, [fn_params_buf + r8]
+    lea r9, [r8 + r8*2]
+    shl r9, 3               # r14 * 24
+    lea r9, [fn_params_buf + r9]
     mov [r9 + 0], rcx
     mov [r9 + 8], rdx
-    inc r14
+    mov QWORD PTR [r9 + 16], TYPE_INT  # default int
 
     call advance_token
 
@@ -354,9 +442,35 @@ parse_fn:
     cmp rbx, TOK_COLON
     jne .L_pfn_param_comma
     call advance_token      # skip ':'
+
+    call get_cur_tok_ptr
+    mov r8, r14
+    lea r8, [r8 + r8*2]
+    shl r8, 3               # r14 * 24
+    mov rbx, [rax + 0]
+    cmp rbx, TOK_FLOAT_KW
+    jne .L_pfn_chk_int
+    mov QWORD PTR [fn_params_buf + r8 + 16], TYPE_FLOAT
+    jmp .L_pfn_param_type_done
+.L_pfn_chk_int:
+    cmp rbx, TOK_INT_KW
+    jne .L_pfn_chk_char
+    mov QWORD PTR [fn_params_buf + r8 + 16], TYPE_INT
+    jmp .L_pfn_param_type_done
+.L_pfn_chk_char:
+    cmp rbx, TOK_CHAR_KW
+    jne .L_pfn_chk_bool
+    mov QWORD PTR [fn_params_buf + r8 + 16], TYPE_CHAR
+    jmp .L_pfn_param_type_done
+.L_pfn_chk_bool:
+    cmp rbx, TOK_BOOL_KW
+    jne .L_pfn_param_type_done
+    mov QWORD PTR [fn_params_buf + r8 + 16], TYPE_BOOL
+.L_pfn_param_type_done:
     call advance_token      # skip type
 
 .L_pfn_param_comma:
+    inc r14
     call get_cur_tok_ptr
     mov rbx, [rax + 0]
     cmp rbx, TOK_COMMA
@@ -396,12 +510,19 @@ parse_fn:
     jge .L_pfn_body
 
     mov r8, r15
-    shl r8, 4               # r15 * 16
-    lea r9, [fn_params_buf + r8]
-    mov rdi, [r9 + 0]       # name_ptr
-    mov rsi, [r9 + 8]       # name_len
+    lea r8, [r8 + r8*2]
+    shl r8, 3               # r15 * 24
+    mov rdi, [fn_params_buf + r8 + 0]       # name_ptr
+    mov rsi, [fn_params_buf + r8 + 8]       # name_len
+    push QWORD PTR [fn_params_buf + r8 + 16] # param type_id
     call symtab_add         # returns assigned stack offset in rax
     mov r10, rax            # save local offset in r10
+
+    # Record param type in symtab
+    mov rdi, r10
+    pop rsi                 # param type_id
+    xor rdx, rdx
+    call symtab_set_type
 
     # Param register or stack for params 7-12
     cmp r15, 6
@@ -430,7 +551,8 @@ parse_fn:
     jmp .L_pfn_spill_next
 .L_pfn_use_reg:
     # emit "    mov QWORD PTR [rbp - {offset}], {reg}\n" into fn_body_buf
-    push rax                 # rax = local offset from symtab_add
+    mov rax, r10             # restore local offset from symtab_add
+    push rax
     lea rdi, [str_mov_qword_rbp]
     call emit_cstr
     pop rax
@@ -684,15 +806,32 @@ parse_statement:
 # or let <id>: <type> = <expr>;
 .L_stmt_let:
     call advance_token      # skip 'let'
+    xor r14, r14            # r14 = declared type (TYPE_UNKNOWN = 0)
 
     call get_cur_tok_ptr
     mov rbx, [rax + 0]
 
-    # check leading type (e.g. `let char c` or `let bool b`)
+    # check leading type (e.g. `let char c` or `let bool b` or `let float f` or `let int i`)
+    cmp rbx, TOK_INT_KW
+    jne .L_let_chk_leading_float
+    mov r14, TYPE_INT
+    jmp .L_let_skip_type
+.L_let_chk_leading_float:
+    cmp rbx, TOK_FLOAT_KW
+    jne .L_let_chk_leading_char
+    mov r14, TYPE_FLOAT
+    jmp .L_let_skip_type
+.L_let_chk_leading_char:
     cmp rbx, TOK_CHAR_KW
-    je .L_let_skip_type
+    jne .L_let_chk_leading_bool
+    mov r14, TYPE_CHAR
+    jmp .L_let_skip_type
+.L_let_chk_leading_bool:
     cmp rbx, TOK_BOOL_KW
     jne .L_let_chk_id_type
+    mov r14, TYPE_BOOL
+    jmp .L_let_skip_type
+
 .L_let_skip_type:
     call advance_token
     call get_cur_tok_ptr
@@ -721,12 +860,34 @@ parse_statement:
     mov r13, [rax + 16]     # id_len
     call advance_token
 
-    # check trailing `: type` (e.g. `let x: int = ...`)
+    # check trailing `: type` (e.g. `let x: int = ...`, `let x: float = ...`)
     call get_cur_tok_ptr
     mov rbx, [rax + 0]
     cmp rbx, TOK_COLON
     jne .L_let_assign
     call advance_token      # skip ':'
+
+    call get_cur_tok_ptr
+    mov rbx, [rax + 0]
+    cmp rbx, TOK_INT_KW
+    jne .L_let_trailing_float
+    mov r14, TYPE_INT
+    jmp .L_let_trailing_done
+.L_let_trailing_float:
+    cmp rbx, TOK_FLOAT_KW
+    jne .L_let_trailing_char
+    mov r14, TYPE_FLOAT
+    jmp .L_let_trailing_done
+.L_let_trailing_char:
+    cmp rbx, TOK_CHAR_KW
+    jne .L_let_trailing_bool
+    mov r14, TYPE_CHAR
+    jmp .L_let_trailing_done
+.L_let_trailing_bool:
+    cmp rbx, TOK_BOOL_KW
+    jne .L_let_trailing_done
+    mov r14, TYPE_BOOL
+.L_let_trailing_done:
     call advance_token      # skip type
 
 .L_let_assign:
@@ -738,13 +899,26 @@ parse_statement:
     # parse expression into rax
     call parse_expr
 
+    # If r14 == TYPE_UNKNOWN, infer type from cur_expr_type
+    cmp r14, TYPE_UNKNOWN
+    jne .L_let_type_resolved
+    mov r14, [cur_expr_type]
+.L_let_type_resolved:
+
     # allocate stack slot in symtab (with scope redeclaration guard)
     mov rdi, r12
     mov rsi, r13
     call symtab_add         # returns offset in rax
+    mov r15, rax            # save offset
+
+    # store type in symtab
+    mov rdi, r15            # offset
+    mov rsi, r14            # type_id
+    xor rdx, rdx            # extra
+    call symtab_set_type
 
     # emit "    mov QWORD PTR [rbp - {offset}], rax\n"
-    push rax
+    push r15
     lea rdi, [str_mov_qword_rbp]
     call emit_cstr
     pop rax
@@ -1522,6 +1696,7 @@ parse_statement:
 parse_expr:
     push rbp
     mov rbp, rsp
+    mov QWORD PTR [cur_expr_type], TYPE_INT
     call parse_logical_or
     mov rsp, rbp
     pop rbp
@@ -1761,6 +1936,9 @@ parse_additive:
     mov rbp, rsp
     push rbx
     push r12
+    push r13
+    push r14
+    push r15
 
     call parse_multiplicative
 
@@ -1775,6 +1953,7 @@ parse_additive:
 
 .L_add_match:
     call advance_token
+    mov r13, [cur_expr_type]   # save LHS type
     lea rdi, [str_push_rax]
     call emit_cstr
 
@@ -1783,6 +1962,14 @@ parse_additive:
     lea rdi, [str_pop_rbx]
     call emit_cstr
 
+    mov r14, [cur_expr_type]   # RHS type
+    cmp r13, TYPE_FLOAT
+    je .L_add_is_float
+    cmp r14, TYPE_FLOAT
+    je .L_add_is_float
+
+    # Both int
+    mov QWORD PTR [cur_expr_type], TYPE_INT
     cmp r12, TOK_PLUS
     jne .L_add_sub
     lea rdi, [str_add_rax_rbx]
@@ -1793,7 +1980,50 @@ parse_additive:
     call emit_cstr
     jmp .L_add_loop
 
+.L_add_is_float:
+    mov QWORD PTR [cur_expr_type], TYPE_FLOAT
+    cmp r12, TOK_PLUS
+    jne .L_add_float_sub
+
+    # Float Addition
+    cmp r13, TYPE_FLOAT
+    jne .L_add_fadd_lhs_int
+    cmp r14, TYPE_FLOAT
+    jne .L_add_fadd_rhs_int
+    lea rdi, [str_fadd]
+    call emit_cstr
+    jmp .L_add_loop
+.L_add_fadd_lhs_int:
+    lea rdi, [str_fadd_lhs_int]
+    call emit_cstr
+    jmp .L_add_loop
+.L_add_fadd_rhs_int:
+    lea rdi, [str_fadd_rhs_int]
+    call emit_cstr
+    jmp .L_add_loop
+
+.L_add_float_sub:
+    # Float Subtraction
+    cmp r13, TYPE_FLOAT
+    jne .L_add_fsub_lhs_int
+    cmp r14, TYPE_FLOAT
+    jne .L_add_fsub_rhs_int
+    lea rdi, [str_fsub]
+    call emit_cstr
+    jmp .L_add_loop
+.L_add_fsub_lhs_int:
+    lea rdi, [str_fsub_lhs_int]
+    call emit_cstr
+    jmp .L_add_loop
+.L_add_fsub_rhs_int:
+    lea rdi, [str_fsub_rhs_int]
+    call emit_cstr
+    jmp .L_add_loop
+
 .L_add_done:
+    pop r15
+    pop r14
+    pop r13
     pop r12
     pop rbx
     mov rsp, rbp
@@ -1806,6 +2036,9 @@ parse_multiplicative:
     mov rbp, rsp
     push rbx
     push r12
+    push r13
+    push r14
+    push r15
 
     call parse_primary
 
@@ -1822,6 +2055,7 @@ parse_multiplicative:
 
 .L_mul_match:
     call advance_token
+    mov r13, [cur_expr_type]   # save LHS type
     lea rdi, [str_push_rax]
     call emit_cstr
 
@@ -1830,6 +2064,14 @@ parse_multiplicative:
     lea rdi, [str_pop_rbx]
     call emit_cstr
 
+    mov r14, [cur_expr_type]   # RHS type
+    cmp r13, TYPE_FLOAT
+    je .L_mul_is_float
+    cmp r14, TYPE_FLOAT
+    je .L_mul_is_float
+
+    # Both int
+    mov QWORD PTR [cur_expr_type], TYPE_INT
     cmp r12, TOK_STAR
     je .L_mul_imul
     cmp r12, TOK_SLASH
@@ -1849,7 +2091,55 @@ parse_multiplicative:
     call emit_cstr
     jmp .L_mul_loop
 
+.L_mul_is_float:
+    mov QWORD PTR [cur_expr_type], TYPE_FLOAT
+    cmp r12, TOK_STAR
+    je .L_mul_float_mul
+    cmp r12, TOK_SLASH
+    je .L_mul_float_div
+    # Float modulo is not supported
+    lea rdi, [msg_err_float_modulo]
+    mov rsi, [cur_line]
+    call compiler_panic
+
+.L_mul_float_mul:
+    cmp r13, TYPE_FLOAT
+    jne .L_mul_fmul_lhs_int
+    cmp r14, TYPE_FLOAT
+    jne .L_mul_fmul_rhs_int
+    lea rdi, [str_fmul]
+    call emit_cstr
+    jmp .L_mul_loop
+.L_mul_fmul_lhs_int:
+    lea rdi, [str_fmul_lhs_int]
+    call emit_cstr
+    jmp .L_mul_loop
+.L_mul_fmul_rhs_int:
+    lea rdi, [str_fmul_rhs_int]
+    call emit_cstr
+    jmp .L_mul_loop
+
+.L_mul_float_div:
+    cmp r13, TYPE_FLOAT
+    jne .L_mul_fdiv_lhs_int
+    cmp r14, TYPE_FLOAT
+    jne .L_mul_fdiv_rhs_int
+    lea rdi, [str_fdiv]
+    call emit_cstr
+    jmp .L_mul_loop
+.L_mul_fdiv_lhs_int:
+    lea rdi, [str_fdiv_lhs_int]
+    call emit_cstr
+    jmp .L_mul_loop
+.L_mul_fdiv_rhs_int:
+    lea rdi, [str_fdiv_rhs_int]
+    call emit_cstr
+    jmp .L_mul_loop
+
 .L_mul_done:
+    pop r15
+    pop r14
+    pop r13
     pop r12
     pop rbx
     mov rsp, rbp
@@ -1873,6 +2163,7 @@ parse_primary:
     cmp rbx, TOK_INT
     jne .L_prim_not_int
 
+    mov QWORD PTR [cur_expr_type], TYPE_INT
     mov rax, [rax + 8]      # value
     push rax
     lea rdi, [str_mov_rax_imm]
@@ -1888,6 +2179,7 @@ parse_primary:
     cmp rbx, TOK_FLOAT
     jne .L_prim_not_float
 
+    mov QWORD PTR [cur_expr_type], TYPE_FLOAT
     call get_cur_tok_ptr
     mov rdi, [rax + 8]      # str_ptr
     mov rsi, [rax + 16]     # str_len
@@ -1914,6 +2206,7 @@ parse_primary:
     cmp rax, TOK_FLOAT
     jne .L_prim_unary_int_neg
 
+    mov QWORD PTR [cur_expr_type], TYPE_FLOAT
     call advance_token      # skip '-'
     call get_cur_tok_ptr
     mov rdi, [rax + 8]      # str_ptr
@@ -1931,6 +2224,7 @@ parse_primary:
     jmp .L_prim_done
 
 .L_prim_unary_int_neg:
+    mov QWORD PTR [cur_expr_type], TYPE_INT
     call advance_token
     call parse_primary
     lea rdi, [str_neg_rax]
@@ -1953,6 +2247,7 @@ parse_primary:
     # 4. Boolean literals: true / false
     cmp rbx, TOK_TRUE
     jne .L_prim_not_true
+    mov QWORD PTR [cur_expr_type], TYPE_BOOL
     call advance_token
     lea rdi, [str_mov_rax_one]
     call emit_cstr
@@ -1961,6 +2256,7 @@ parse_primary:
 .L_prim_not_true:
     cmp rbx, TOK_FALSE
     jne .L_prim_not_false
+    mov QWORD PTR [cur_expr_type], TYPE_BOOL
     call advance_token
     lea rdi, [str_xor_rax_rax]
     call emit_cstr
@@ -2100,9 +2396,14 @@ parse_primary:
     call get_cur_tok_ptr
     mov rdi, [rax + 8]      # name_ptr
     mov rsi, [rax + 16]     # name_len
-    call symtab_find
-    cmp rax, -1
+    call symtab_lookup
+    cmp rax, 0
     je .L_prim_err_undef
+
+    # Retrieve and set cur_expr_type
+    mov rbx, [rax + 80]     # type_id
+    mov [cur_expr_type], rbx
+    mov rax, [rax + 72]     # stack_offset
 
     # emit "    mov rax, QWORD PTR [rbp - {offset}]\n"
     push rax
@@ -2340,6 +2641,13 @@ parse_primary:
     lea rsi, [msg_err_expected_rparen]
     call expect_tok
 
+    cmp QWORD PTR [cur_expr_type], TYPE_FLOAT
+    jne .L_prim_print_int
+    lea rdi, [str_call_print_float]
+    call emit_cstr
+    jmp .L_prim_done
+
+.L_prim_print_int:
     lea rdi, [str_call_print_int]
     call emit_cstr
     jmp .L_prim_done
@@ -2622,6 +2930,53 @@ parse_primary:
     call emit_str
     call emit_nl
 
+    # Check if this user-defined function has a declared return type
+    mov rdi, r12
+    mov rsi, r13
+    call get_user_fn_ret_type
+    mov [cur_expr_type], rax
+    cmp rax, TYPE_FLOAT
+    je .L_call_cleanup
+
+    # Check if this function returns a float:
+    # 1. "int_to_float" (len 12)
+    cmp r13, 12
+    jne .L_call_chk_float_pfx
+    mov rdi, r12
+    mov rsi, r13
+    lea rdx, [str_int_to_float]
+    mov rcx, 12
+    call str_cmp_n
+    cmp rax, 0
+    jne .L_call_chk_float_pfx
+    mov QWORD PTR [cur_expr_type], TYPE_FLOAT
+    jmp .L_call_cleanup
+
+.L_call_chk_float_pfx:
+    # 2. Starts with "float_" and is NOT "float_to_int"
+    cmp r13, 6
+    jl .L_call_cleanup
+    mov rdi, r12
+    mov rsi, 6
+    lea rdx, [str_float_prefix]
+    mov rcx, 6
+    call str_cmp_n
+    cmp rax, 0
+    jne .L_call_cleanup
+    # It starts with "float_". Is it "float_to_int"?
+    cmp r13, 12
+    jne .L_call_is_flt_ret
+    mov rdi, r12
+    mov rsi, r13
+    lea rdx, [str_float_to_int]
+    mov rcx, 12
+    call str_cmp_n
+    cmp rax, 0
+    je .L_call_cleanup
+.L_call_is_flt_ret:
+    mov QWORD PTR [cur_expr_type], TYPE_FLOAT
+
+.L_call_cleanup:
     # If r14 > 6, clean up the stack: add rsp, r14 * 8
     cmp r14, 6
     jle .L_prim_done
@@ -2819,3 +3174,24 @@ str_mov_rax_rax_field:  .string "    mov rax, QWORD PTR [rax + "
 str_fn_print_float:     .string "print_float"
 str_call_print_float:   .string "    mov rdi, rax\n    movq xmm0, rax\n    call __rubix_print_float\n    xor rax, rax\n"
 str_pop_rax:            .string "    pop rax\n"
+
+str_fadd:            .string "    movq xmm0, rax\n    movq xmm1, rbx\n    addsd xmm0, xmm1\n    movq rax, xmm0\n"
+str_fadd_lhs_int:    .string "    cvtsi2sd xmm0, rax\n    movq xmm1, rbx\n    addsd xmm0, xmm1\n    movq rax, xmm0\n"
+str_fadd_rhs_int:    .string "    movq xmm0, rax\n    cvtsi2sd xmm1, rbx\n    addsd xmm0, xmm1\n    movq rax, xmm0\n"
+
+str_fsub:            .string "    movq xmm0, rax\n    movq xmm1, rbx\n    subsd xmm0, xmm1\n    movq rax, xmm0\n"
+str_fsub_lhs_int:    .string "    cvtsi2sd xmm0, rax\n    movq xmm1, rbx\n    subsd xmm0, xmm1\n    movq rax, xmm0\n"
+str_fsub_rhs_int:    .string "    movq xmm0, rax\n    cvtsi2sd xmm1, rbx\n    subsd xmm0, xmm1\n    movq rax, xmm0\n"
+
+str_fmul:            .string "    movq xmm0, rax\n    movq xmm1, rbx\n    mulsd xmm0, xmm1\n    movq rax, xmm0\n"
+str_fmul_lhs_int:    .string "    cvtsi2sd xmm0, rax\n    movq xmm1, rbx\n    mulsd xmm0, xmm1\n    movq rax, xmm0\n"
+str_fmul_rhs_int:    .string "    movq xmm0, rax\n    cvtsi2sd xmm1, rbx\n    mulsd xmm0, xmm1\n    movq rax, xmm0\n"
+
+str_fdiv:            .string "    movq xmm0, rax\n    movq xmm1, rbx\n    divsd xmm0, xmm1\n    movq rax, xmm0\n"
+str_fdiv_lhs_int:    .string "    cvtsi2sd xmm0, rax\n    movq xmm1, rbx\n    divsd xmm0, xmm1\n    movq rax, xmm0\n"
+str_fdiv_rhs_int:    .string "    movq xmm0, rax\n    cvtsi2sd xmm1, rbx\n    divsd xmm0, xmm1\n    movq rax, xmm0\n"
+
+msg_err_float_modulo: .string "Floating point modulo is not supported"
+str_float_prefix:    .string "float_"
+str_int_to_float:    .string "int_to_float"
+str_float_to_int:    .string "float_to_int"

@@ -1,0 +1,44 @@
+fn compute_hypot(a: float, b: float): float {
+    let sum_sq = a * a + b * b;
+    return sum_sq;
+}
+
+fn main() {
+    print_str("--- Native Float Operators & Type Tracking Test ---\n");
+
+    let a: float = 10.500000;
+    let b: float = 2.500000;
+
+    # 1. Native SSE2 arithmetic without float_add / float_sub helpers
+    let sum = a + b;
+    print_str("a + b = ");
+    print(sum);
+
+    let diff = a - b;
+    print_str("a - b = ");
+    print(diff);
+
+    let prod = a * b;
+    print_str("a * b = ");
+    print(prod);
+
+    let quot = a / b;
+    print_str("a / b = ");
+    print(quot);
+
+    # 2. Mixed arithmetic (float + int)
+    let mixed1 = a + 2;
+    print_str("a + 2 = ");
+    print(mixed1);
+
+    let mixed2 = 3 * b;
+    print_str("3 * b = ");
+    print(mixed2);
+
+    # 3. Typed function parameter call
+    let h2 = compute_hypot(3.000000, 4.000000);
+    print_str("3.0^2 + 4.0^2 = ");
+    print(h2);
+
+    return 0;
+}

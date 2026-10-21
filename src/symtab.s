@@ -225,6 +225,8 @@ symtab_add:
     mov [rdi + 64], r13     # name_len
     pop rax                 # restore offset
     mov [rdi + 72], rax     # stack_offset (rdi = entry pointer, preserved by str_copy)
+    mov QWORD PTR [rdi + 80], TYPE_UNKNOWN # type_id
+    mov QWORD PTR [rdi + 88], 0            # type_extra
 
     inc QWORD PTR [sym_count]
 
@@ -246,8 +248,8 @@ symtab_add:
     mov rsi, [cur_line]
     call compiler_panic
 
-# symtab_find(rdi: name_ptr, rsi: name_len) -> rax: stack_offset (or -1 if not found)
-symtab_find:
+# symtab_lookup(rdi: name_ptr, rsi: name_len) -> rax: entry_ptr (or 0 if not found)
+symtab_lookup:
     push rbp
     mov rbp, rsp
     push rbx
@@ -260,9 +262,9 @@ symtab_find:
 
     mov r14, [sym_count]
     cmp r14, 0
-    je .L_sym_not_found
+    je .L_lookup_not_found
 
-.L_sym_search_loop:
+.L_lookup_search_loop:
     dec r14
     mov rbx, r14
     mov rax, rbx
@@ -279,13 +281,13 @@ symtab_find:
     mov rcx, r13            # target len
     call str_cmp_n
     cmp rax, 0
-    je .L_sym_found
+    je .L_lookup_found
 
     cmp r14, 0
-    jg .L_sym_search_loop
+    jg .L_lookup_search_loop
 
-.L_sym_not_found:
-    mov rax, -1
+.L_lookup_not_found:
+    xor rax, rax
     pop r14
     pop r13
     pop r12
@@ -294,12 +296,74 @@ symtab_find:
     pop rbp
     ret
 
-.L_sym_found:
-    mov rax, [rbx + 72]     # stack_offset
+.L_lookup_found:
+    mov rax, rbx            # return entry_ptr
     pop r14
     pop r13
     pop r12
     pop rbx
+    mov rsp, rbp
+    pop rbp
+    ret
+
+# symtab_find(rdi: name_ptr, rsi: name_len) -> rax: stack_offset (or -1 if not found)
+symtab_find:
+    push rbp
+    mov rbp, rsp
+    call symtab_lookup
+    cmp rax, 0
+    je .L_find_not_found
+    mov rax, [rax + 72]     # stack_offset
+    mov rsp, rbp
+    pop rbp
+    ret
+.L_find_not_found:
+    mov rax, -1
+    mov rsp, rbp
+    pop rbp
+    ret
+
+# symtab_get_type(rdi: name_ptr, rsi: name_len) -> rax: type_id
+symtab_get_type:
+    push rbp
+    mov rbp, rsp
+    call symtab_lookup
+    cmp rax, 0
+    je .L_type_not_found
+    mov rax, [rax + 80]     # type_id
+    mov rsp, rbp
+    pop rbp
+    ret
+.L_type_not_found:
+    mov rax, TYPE_UNKNOWN
+    mov rsp, rbp
+    pop rbp
+    ret
+
+# symtab_set_type(rdi: stack_offset, rsi: type_id, rdx: type_extra)
+symtab_set_type:
+    push rbp
+    mov rbp, rsp
+    mov rcx, [sym_count]
+    cmp rcx, 0
+    je .L_set_type_done
+.L_set_type_loop:
+    dec rcx
+    mov rax, rcx
+    shl rax, 6
+    mov r8, rcx
+    shl r8, 5
+    add rax, r8             # index * 96
+    lea rax, [symtab_buf + rax]
+    cmp [rax + 72], rdi     # match stack_offset
+    jne .L_set_type_next
+    mov [rax + 80], rsi     # type_id
+    mov [rax + 88], rdx     # type_extra
+    jmp .L_set_type_done
+.L_set_type_next:
+    cmp rcx, 0
+    jg .L_set_type_loop
+.L_set_type_done:
     mov rsp, rbp
     pop rbp
     ret

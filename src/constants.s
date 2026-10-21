@@ -42,6 +42,16 @@
 .equ TOK_CHAR_KW, 20
 .equ TOK_BOOL_KW, 21
 .equ TOK_FLOAT_KW, 22
+.equ TOK_INT_KW, 23
+
+# Rubix Data Types
+.equ TYPE_UNKNOWN, 0
+.equ TYPE_INT, 1
+.equ TYPE_FLOAT, 2
+.equ TYPE_BOOL, 3
+.equ TYPE_CHAR, 4
+.equ TYPE_PTR, 5
+.equ TYPE_STRUCT, 6
 
 # Operators & Punctuation
 .equ TOK_PLUS, 30

@@ -497,8 +497,19 @@ lex_all:
     mov rcx, 5
     call str_cmp_n
     cmp rax, 0
-    jne .L_emit_ident
+    jne .L_kw_int
     mov rdi, TOK_FLOAT_KW
+    jmp .L_emit_kw
+
+.L_kw_int:
+    mov rdi, r14
+    mov rsi, r15
+    lea rdx, [kw_int]
+    mov rcx, 3
+    call str_cmp_n
+    cmp rax, 0
+    jne .L_emit_ident
+    mov rdi, TOK_INT_KW
     jmp .L_emit_kw
 
 .L_emit_kw:
@@ -720,6 +731,7 @@ kw_continue: .string "continue"
 kw_for:    .string "for"
 kw_struct: .string "struct"
 kw_float:  .string "float"
+kw_int:    .string "int"
 
 msg_err_tok_overflow:     .string "Too many tokens (buffer overflow)"
 msg_err_unknown_char:     .string "Unrecognized character in source"
