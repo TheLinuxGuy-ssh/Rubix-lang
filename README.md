@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <strong>The 100% Pure x86-64 Assembly Systems Language</strong><br>
-  <em>Direct silicon execution breaking the OS barrier across Linux, Windows, and macOS with zero libc dependencies.</em>
+  <strong>The Ultra-Lightweight x86-64 Systems Programming Language</strong><br>
+  <em>Zero C. Zero libc. Zero LLVM. A ~42 KB compiler building standalone native binaries in sub-milliseconds.</em>
 </p>
 
 ```
@@ -22,9 +22,48 @@
    ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝╚═╝  ╚═╝
 ```
 
-> **A sovereign systems programming language whose entire compiler is written from scratch in 100% pure x86-64 assembly.**  
-> **Zero libc. Zero C. Zero Python. Zero LLVM. Zero WASM. Zero Virtual Machines.**  
-> **Direct native execution breaking the OS barrier across Linux, Windows, and macOS.**
+> **A sovereign systems programming language whose entire compiler is written in 100% pure x86-64 assembly.**  
+> **Zero libc. Zero C. Zero LLVM. Zero Virtual Machines. Zero bloated toolchains.**  
+> **Produces standalone native executables for Linux ELF64 and Windows PE64.**
+
+---
+
+## ⚡ 10-Second Syntax Preview
+
+```rubix
+struct Point {
+    x: int,
+    y: int
+}
+
+fn hypot_squared(p: Point): int {
+    return p.x * p.x + p.y * p.y;
+}
+
+fn main() {
+    print_str("Hello from Rubix!\n");
+
+    let pt = Point { x: 3, y: 4 };
+    let dist = hypot_squared(pt);
+    print(dist); // Prints: 25
+
+    let pi: float = 3.141592;
+    print(pi * 2.0); // Native SSE2 float math
+
+    return 0;
+}
+```
+
+---
+
+## 🎯 Why Rubix? (vs. C or Zig)
+
+Why choose Rubix over industry standards like C, Zig, or Rust?
+
+* **Instant Compilation (< 1 ms):** Zero LLVM or Clang optimization overhead. Rubix compiles source code directly into machine code in fractions of a millisecond.
+* **Ultra-Lightweight (~42 KB Binary):** The entire compiler is about **42 KB** on disk. While Zig, Rust, and Clang toolchains weigh between 100 MB and 1.5 GB, Rubix runs effortlessly even on a 512 MB Raspberry Pi or a 4 GB RAM laptop.
+* **100% Pure Assembly & Total Transparency:** The compiler is written in ~3,500 lines of readable GNU x86-64 Intel-syntax assembly. There are no black-box optimizations or thousands of hidden header files.
+* **True Standalone Executables (Zero Libc):** Produced binaries have zero dependency on `libc`, `musl`, or C runtimes. They talk directly to the OS kernel via Linux `syscall` or resolve Windows APIs by walking the PEB in memory.
 
 ---
 
@@ -42,14 +81,15 @@
 
 - **Pure Assembly Compiler**: The compiler itself is written completely in GNU x86-64 assembly (`as` + `ld`). No external dependencies or runtime libraries are needed.
 - **Tiny & Instant**: The compiler binary is only **~42 KB**, with sub-millisecond compilation times.
-- **Zero OS Barrier (Universal Multi-OS Architecture)**:
-  - Compiles `.ix` code into standalone native executables equipped with an adaptive runtime.
-  - **No WASM, No Virtual Machine**: Architected to execute directly on bare silicon across **Linux, Windows, and macOS** (verified on Linux x86-64).
-  - **Dynamic Host OS Detection**: Automatically determines the host OS at binary entry (`rubix_host_os`).
-  - **In-Memory Windows Resolver**: Walks the Windows PEB (`gs:[0x60]`) in pure assembly to resolve `kernel32.dll` API exports without external import tables.
+- **Zero-Libc Native Runtimes**:
+  - Compiles `.ix` code into standalone native executables equipped with an adaptive assembly runtime.
+  - **Linux ELF64**: Direct Linux kernel `syscall` dispatch for file I/O, process exit, and 64 KB arena bump allocation.
+  - **Windows PE64 (`-t windows`)**: Dynamic Process Environment Block (`gs:[0x60]`) resolver that walks `kernel32.dll` export directories without requiring import libraries (`.lib`) or MinGW.
 - **Rich Language Features**:
   - `for` and `while` loops with `break`, `continue`, and arbitrary nesting
-  - Dynamic heap allocation (`alloc`, `free`) using Linux `sys_mmap` or Windows `VirtualAlloc`
+  - Dynamic heap allocation (`alloc`, `free`) with a high-performance 64 KB arena sub-allocator
+  - Compound `struct` declarations, heap instantiation, and field mutation without name collisions
+  - Full 64-bit IEEE-754 double precision floats (`float`) with SSE2 native arithmetic and relational comparisons
   - Dynamic array indexing (`arr[i] = val`) and array literal syntax (`[1, 2, 3]`)
   - First-class function calls with unbounded parameter counts (>6 parameters supported via AMD64 ABI registers + stack spills)
   - Multi-file module imports (`import "lib.ix"`)
@@ -351,11 +391,14 @@ Rubix Compiler Error: Expected expression
 - Linux OS (x86-64)
 - GNU Assembler (`as`) and Linker (`ld`) (available via standard `binutils`)
 
-### 1. Build the Compiler
+### 1. Build the Compiler (or Download Prebuilt)
 ```bash
 make clean && make
 ```
-Produces `rubix_compiler` and `lib/runtime.o`.
+Produces `rubix_compiler` (the standalone ~42 KB binary).
+
+> [!TIP]
+> **Prebuilt Binaries:** If you don't want to build from source, standalone prebuilt binaries for Linux x86-64 are available on the [GitHub Releases](https://github.com/tek-sys-hub/Rubix-lang/releases) page.
 
 ### 2. Compile and Run a Program
 Use the `./rubixc` compiler driver:
@@ -365,6 +408,7 @@ Use the `./rubixc` compiler driver:
 ./rubixc -r examples/15_floats.ix
 ./rubixc -r examples/16_structs.ix
 ./rubixc -r examples/17_native_floats.ix
+./rubixc -r examples/18_compiler_fixes.ix
 
 # Compile for Windows PE64
 ./rubixc -t windows examples/01_hello.ix -o hello.exe
@@ -377,10 +421,19 @@ Use the `./rubixc` compiler driver:
 ```bash
 ./test.sh
 ```
-Executes all **18** test suites verifying the compiler build, arithmetic, control flow, functions, prime algorithms, dynamic arrays, modules, loops, standard library, floats, structs, native float SSE2 operators, Windows cross-linking, and separate compilation.
+Executes all **19** test suites verifying the compiler build, arithmetic, control flow, functions, prime algorithms, dynamic arrays, modules, loops, standard library, floats, structs, native float SSE2 operators, Windows cross-linking, separate compilation, and compiler bug fixes.
+
+---
+
+## 🔄 Self-Hosting & Compiler Status
+
+* **Primary Production Compiler (`src/*.s`):**  
+  Implemented in ~3,500 lines of pure GNU x86-64 assembly. This is the official, complete compiler that powers Rubix and passes all 19 test suites.
+* **Bootstrap Self-Hosting Compiler (`rubixc_bootstrap/`):**  
+  An active community milestone written in native Rubix (`.ix`). Currently an early prototype (~1,000 lines), with active work being tracked in [Issue #1](https://github.com/tek-sys-hub/Rubix-lang/issues/1) to achieve full self-hosting.
 
 ---
 
 ## 📜 License
 
-Created with precision in pure x86-64 Assembly. Free and open source.
+Created with precision in pure x86-64 Assembly. Free and open source under the MIT License.
