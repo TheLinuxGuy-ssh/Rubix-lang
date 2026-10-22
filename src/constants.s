@@ -7,6 +7,9 @@
 .equ SYS_CLOSE, 3
 .equ SYS_MMAP, 9
 .equ SYS_EXIT, 60
+.equ TARGET_LINUX, 1
+.equ TARGET_WINDOWS, 2
+.equ TARGET_MACOS, 3
 
 # File flags
 .equ O_RDONLY, 0

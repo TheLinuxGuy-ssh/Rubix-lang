@@ -68,6 +68,8 @@ user_fn_count:    .quad 0
 # Duplicate main tracking
 main_defined:     .quad 0
 
+cur_fn_is_main: .quad 0
+
 # Per-function label base to avoid label collisions across functions
 fn_label_base:    .quad 0
 
@@ -158,6 +160,15 @@ _start:
 
 .section .data
 default_out_file:     .string "out.s"
+target_os:            .quad 1
 msg_usage:            .string "Usage: rubix_compiler <source.ix> [output.s]\n"
 msg_success_compiled: .string "Rubix: successfully compiled -> "
 msg_success_end:      .string "\n"
+str_opt_t:            .string "-t"
+str_opt_target:       .string "--target"
+str_linux:            .string "linux"
+str_windows:          .string "windows"
+str_win:              .string "win"
+str_win64:            .string "win64"
+str_macos:            .string "macos"
+str_darwin:           .string "darwin"
