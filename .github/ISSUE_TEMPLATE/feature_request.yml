@@ -1,0 +1,31 @@
+name: Feature Request / Roadmap Proposal
+description: Propose a feature, architecture improvement, or standard library expansion
+title: "[FEATURE]: "
+labels: ["enhancement", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an improvement to the Rubix Language!
+        Please review [ROADMAP.md](../../ROADMAP.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md) before submitting.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What limitation or missing feature does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution / Architecture
+      description: Describe the assembly, compiler, or runtime changes needed.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria / Test Cases
+      description: How will we verify that this works (e.g. new test in examples/)?
+    validations:
+      required: true
